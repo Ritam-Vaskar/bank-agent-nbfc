@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: bank-agent-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: bank_agent
+    volumes:
+      - mongodb_data:/data/db
+      - ./seed:/docker-entrypoint-initdb.d
+    networks:
+      - bank-agent-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: bank-agent-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bank-agent-network
+
+  # Backend Node.js Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bank-agent-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      MONGODB_URI: mongodb://mongodb:27017/bank_agent
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-jwt-secret-change-this-in-production
+      JWT_REFRESH_SECRET: your-refresh-secret-change-this-in-production
+      AGENT_SERVICE_URL: http://agents:8000
+      FRONTEND_URL: http://localhost:3000
+    depends_on:
+      - mongodb
+      - redis
+      - agents
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - bank-agent-network
+
+  # Python Agents Service
+  agents:
+    build:
+      context: ./agents
+      dockerfile: Dockerfile
+    container_name: bank-agent-agents
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./agents:/app
+      - ./mock_services:/app/mock_services
+    networks:
+      - bank-agent-network
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bank-agent-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: your-secret-key-change-this-in-production
+      BACKEND_URL: http://backend:5000
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - bank-agent-network
+
+networks:
+  bank-agent-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:

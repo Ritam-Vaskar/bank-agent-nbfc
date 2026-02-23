@@ -7,8 +7,10 @@ export async function POST(request) {
     
     const body = await request.json()
     
-    // Forward request to backend
+    // Forward request to backend - MUST use Docker service name
     const backendUrl = process.env.BACKEND_URL || 'http://backend:5000'
+    console.log('[CHAT] Using backend URL:', backendUrl, 'Body:', body)
+    
     const response = await fetch(`${backendUrl}/api/chat/message`, {
       method: 'POST',
       headers: {

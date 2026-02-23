@@ -50,9 +50,7 @@ services:
       - mongodb
       - redis
       - agents
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
+    # Remove volume mounts for production
     networks:
       - bank-agent-network
 
@@ -88,10 +86,7 @@ services:
       BACKEND_URL: http://backend:5000
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+    # Remove volume mounts for production - use built image instead
     networks:
       - bank-agent-network
 

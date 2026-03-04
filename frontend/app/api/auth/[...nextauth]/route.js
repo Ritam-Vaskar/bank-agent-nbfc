@@ -25,10 +25,10 @@ const handler = NextAuth({
 
           if (res.ok && data.success) {
             return {
-              id: data.user._id,
+              id: data.user.id || data.user._id,
               email: data.user.email,
               name: data.user.name,
-              token: data.token,
+              token: data.accessToken || data.token,
             }
           }
           

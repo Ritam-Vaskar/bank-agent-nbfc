@@ -68,10 +68,7 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+    # Remove volume mounts for production - use built image instead
     networks:
       - nbfc_network
     command: npm run dev

@@ -27,8 +27,7 @@ class OTPService:
     @staticmethod
     def hash_otp(otp: str) -> str:
         """Hash OTP using bcrypt"""
-        # Passlib's hash function expects string, it handles encoding internally
-        return bcrypt.using(rounds=4).hash(otp)
+        return bcrypt.hash(otp)
     
     @staticmethod
     def verify_otp_hash(otp: str, hashed: str) -> bool:

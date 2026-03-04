@@ -1,533 +1,380 @@
-# Bank Agent - AI-Powered Loan Processing System
+# NBFC Digital Lending Platform
 
-<div align="center">
+A production-grade digital lending platform with multi-stage policy-driven underwriting, simulating realistic NBFC loan lifecycle processes inspired by Tata Capital policies.
 
-![Bank Agent](https://img.shields.io/badge/AI-Powered-blue)
-![Next.js](https://img.shields.io/badge/Next.js-14-black)
-![Node.js](https://img.shields.io/badge/Node.js-20-green)
-![Python](https://img.shields.io/badge/Python-3.11-yellow)
-![License](https://img.shields.io/badge/license-MIT-blue)
-
-**A complete, production-ready AI agent system for automated loan processing with conversational UI**
-
-[Features](#features) • [Tech Stack](#tech-stack) • [Quick Start](#quick-start) • [Architecture](#architecture) • [API Docs](#api-documentation)
-
-</div>
-
----
-
-## 🎯 Overview
-
-Bank Agent is an intelligent, multi-agent loan processing system that guides users through the entire loan journey - from initial inquiry to sanction letter - all through natural conversation. Built with modern tech stack and following MCP (Model Context Protocol) architecture.
-
-### ✨ Key Features
-
-- **🤖 AI-Powered Agents** - 6 specialized agents handling different stages
-- **💬 Conversational UI** - Chat-based loan application process
-- **🔐 Secure & Compliant** - Bank-grade security with audit trails
-- **⚡ Real-time Processing** - Instant credit decisions and approvals
-- **📊 Admin Dashboard** - Complete oversight and manual review capabilities
-- **🎨 Modern UI** - Beautiful, responsive design with dark mode
-- **🐳 Docker Ready** - One-command deployment
-
----
-
-## 🏗️ Architecture
-
-### State Machine Flow
+## 🏗️ Architecture Overview
 
 ```
-INIT → SALES → KYC → CREDIT → DOCUMENTS → OFFER → ACCEPTANCE → SANCTION → COMPLETE
+┌─────────────────────────────────────────────────────────────────┐
+│                         Frontend (Next.js)                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
+│  │ Chat UI      │  │ Dashboard    │  │ Admin Analytics      │ │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘ │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ REST API / WebSocket
+┌────────────────────────────┴────────────────────────────────────┐
+│                      Backend (FastAPI)                           │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │            LangGraph Workflow Orchestrator                │  │
+│  │  ┌────────┐  ┌────────┐  ┌────────┐  ┌──────────────┐   │  │
+│  │  │ KYC    │→ │Credit  │→ │ Risk   │→ │ Offer Gener- │   │  │
+│  │  │Verify  │  │Check   │  │Assess  │  │ation         │   │  │
+│  │  └────────┘  └────────┘  └────────┘  └──────────────┘   │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │         Deterministic Engines (Tools)                     │  │
+│  │  • Policy Engine      • Risk Engine                       │  │
+│  │  • KYC Engine         • Pricing Engine                    │  │
+│  │  • Bureau Engine      • EMI Engine                        │  │
+│  │  • Affordability      • PDF Engine                        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+        ┌────────────────────┴───────────────────┐
+        │                                        │
+┌───────▼────────┐                      ┌────────▼────────┐
+│   MongoDB      │                      │     Redis       │
+│  • Users       │                      │  • OTP Sessions │
+│  • Loans       │                      │  • JWT Blacklist│
+│  • Applications│                      │  • Cache        │
+│  • Audit Logs  │                      └─────────────────┘
+└────────────────┘
 ```
 
-### Agent Responsibilities
+## 🚀 Key Features
 
-| Agent | Purpose | Output |
-|-------|---------|--------|
-| **Master Agent** | Orchestrates entire flow | Next agent + user message |
-| **Sales Agent** | Collects loan intent | Loan type, amount, tenure |
-| **KYC Agent** | Verifies identity | Masked PAN/Aadhaar |
-| **Underwriting Agent** | Credit assessment | Risk level, approved amount |
-| **Document Agent** | Validates documents | Verification status |
-| **Sanction Agent** | Generates letter | Sanction ID + letter |
+- **OTP-Based Authentication**: Secure email OTP flow with JWT tokens
+- **LangGraph Orchestration**: Stateful loan workflow with conditional branching
+- **Policy-Driven Underwriting**: JSON-based policy rules for multiple loan types
+- **Risk-Based Pricing**: Weighted risk scoring model (credit score, FOIR, employment, city tier)
+- **Mock Bureau Integration**: 10,000+ realistic credit profiles
+- **FOIR Calculation**: Automated affordability assessment
+- **Sanction Letter Generation**: Professional PDF with digital signature simulation
+- **EMI Amortization**: Complete repayment schedule generation
+- **Audit Logging**: Every decision point tracked for compliance
+- **PII Encryption**: AES-256 encryption for sensitive data
+- **Multi-Loan Support**: Personal, Home, Vehicle, Business, Credit Card (Phase 2)
 
----
+## 🛠️ Technology Stack
 
-## 📚 Tech Stack
+**Backend:**
+- Python 3.11+ with FastAPI
+- LangGraph 0.2+ (workflow orchestration)
+- LangChain + OpenAI GPT-4
+- MongoDB (document store)
+- Redis (sessions & caching)
+- ReportLab (PDF generation)
 
-### Frontend
-- **Next.js 14** - React framework with App Router
-- **Tailwind CSS** - Utility-first styling
-- **Framer Motion** - Smooth animations
-- **NextAuth.js** - Authentication
-- **Axios** - HTTP client
+**Frontend:**
+- Next.js 14+ (App Router)
+- TailwindCSS + Shadcn/UI
+- React Query
+- TypeScript
 
-### Backend
-- **Node.js + Express** - REST API server
-- **MongoDB** - Primary database
-- **Redis** - Session & cache storage
-- **JWT** - Token-based auth
+**DevOps:**
+- Docker Compose
+- Multi-stage Dockerfiles
 
-### AI Agents
-- **Python 3.11 + Flask** - Agent runtime
-- **JSON-only communication** - Structured outputs
-- **Mock APIs** - CIBIL, Aadhaar, PAN verification
+## 📋 Prerequisites
 
-### Infrastructure
-- **Docker Compose** - Container orchestration
-- **MongoDB** - Document storage
-- **Redis** - Caching layer
-
----
+- Docker Desktop installed and running
+- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
+- Git
+- 4GB+ RAM available for containers
+- Ports 3000, 8000, 27017, 6379 available
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- **Docker** & **Docker Compose** (Recommended)
-- OR: **Node.js 20+**, **Python 3.11+**, **MongoDB**, **Redis**
-
-### Option 1: Docker (Recommended)
+### 1. Clone and Configure
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/Ritam-Vaskar/bank-agent-nbfc.git
 cd bank-agent
 
-# Start all services
+# Copy environment template
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key
+# On Windows: notepad .env
+# On macOS/Linux: nano .env
+```
+
+**Required environment variables to configure:**
+- `OPENAI_API_KEY`: Your OpenAI API key
+- `ENCRYPTION_KEY`: Generate using:
+  ```bash
+  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  ```
+- `JWT_SECRET_KEY`: Any strong random string (32+ characters)
+
+### 2. Start the Platform
+
+```bash
+# Build and start all services
 docker-compose up --build
 
-# Access the application
-# Frontend: http://localhost:3000
-# Backend: http://localhost:5000
-# Agents: http://localhost:8000
+# Or run in detached mode
+docker-compose up -d --build
 ```
 
-### Option 2: Manual Setup
+**Services will start on:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Documentation: http://localhost:8000/docs
+- MongoDB: localhost:27017
+- Redis: localhost:6379
 
-#### 1. Backend Setup
+### 3. Seed Mock Data
 
 ```bash
-cd backend
-npm install
-cp .env.example .env  # Edit with your config
-npm run dev
+# In a new terminal, seed the database with mock records
+docker-compose exec backend python scripts/seed_db.py
+
+# Generate 10,000 mock credit bureau records (optional)
+docker-compose exec backend python mock_data/generator.py --records 10000
 ```
 
-#### 2. Python Agents Setup
+### 4. Access the Platform
 
-```bash
-cd agents
-pip install -r requirements.txt
-python master_agent.py
-```
+1. Open http://localhost:3000
+2. Enter your email to receive OTP (check console logs: `docker-compose logs backend`)
+3. Enter OTP to login
+4. Apply for a Personal Loan via chat interface
+5. Experience the complete loan journey!
 
-#### 3. Frontend Setup
+## 📚 API Documentation
 
-```bash
-cd frontend
-npm install
-cp .env.local.example .env.local  # Edit with your config
-npm run dev
-```
+Once the backend is running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
-#### 4. Database Setup
+### Key Endpoints
 
-```bash
-# Start MongoDB (if not using Docker)
-mongod --dbpath /path/to/data
+**Authentication:**
+- `POST /auth/request-otp` - Request OTP for email
+- `POST /auth/verify-otp` - Verify OTP and get JWT
+- `GET /auth/me` - Get current user info
 
-# Start Redis
-redis-server
+**Loan Application:**
+- `POST /loans/apply` - Start new loan application
+- `POST /loans/{application_id}/chat` - Send message in chat flow
+- `GET /loans/applications` - List user's applications
+- `POST /loans/{application_id}/accept` - Accept loan offer
+- `GET /loans/{loan_id}/sanction-letter` - Download PDF
 
-# Seed demo users
-cd backend
-node seed/demo_users.js
-```
+**Admin:**
+- `GET /admin/applications` - All applications (admin only)
+- `GET /admin/analytics/risk-distribution` - Risk analytics
+- `GET /admin/audit-logs` - Audit trail
 
----
+## 🏦 Loan Types & Policies
 
-## 🎮 Usage
+### Phase 1 (Current): Personal Loan
+- Min Age: 21, Max Age: 60
+- Min Credit Score: 700
+- Min Income: ₹25,000/month
+- FOIR Limit: 60%
+- Interest Rates: 11.5% - 18% (based on risk)
+- Max Tenure: 60 months
 
-### Demo Credentials
+### Phase 2 (Planned):
+- **Home Loan**: LTV-based, property valuation
+- **Vehicle Loan**: Insurance mandatory
+- **Business Loan**: GST + ITR verification
+- **Credit Card**: Credit limit determination
 
-| Role | Email | Password |
-|------|-------|----------|
-| User | demo@example.com | demo123 |
-| Admin | admin@example.com | admin123 |
-
-### Sample Loan Journey
-
-1. **Visit** http://localhost:3000
-2. **Sign In** with demo credentials
-3. **Start Chat** - "I want a personal loan"
-4. **Provide Details**:
-   - Amount: "5 lakhs"
-   - Tenure: "36 months"
-5. **KYC Verification**:
-   - PAN: `ABCDE1234F`
-   - Aadhaar: `123456789012`
-6. **Documents**: Type "documents uploaded"
-7. **Accept Offer**: Type "accept"
-8. **Get Sanction Letter** 🎉
-
----
-
-## 📁 Project Structure
-
-```
-bank-agent/
-├── frontend/               # Next.js application
-│   ├── app/
-│   │   ├── auth/          # Authentication pages
-│   │   ├── chat/          # Chat interface
-│   │   └── dashboard/     # User dashboard
-│   ├── components/        # Reusable components
-│   └── lib/               # Utilities
-│
-├── backend/               # Express API server
-│   ├── routes/
-│   │   ├── auth.routes.js
-│   │   ├── chat.routes.js
-│   │   └── admin.routes.js
-│   ├── middleware/
-│   │   ├── auth.js
-│   │   ├── rateLimiter.js
-│   │   └── auditLogger.js
-│   └── server.js
-│
-├── agents/                # Python AI agents
-│   ├── master_agent.py    # Orchestrator
-│   ├── sales_agent.py
-│   ├── kyc_agent.py
-│   ├── underwriting_agent.py
-│   ├── document_agent.py
-│   └── sanction_agent.py
-│
-├── mock_services/         # Mock external APIs
-│   ├── cibil_api.py
-│   ├── aadhaar_api.py
-│   ├── pan_api.py
-│   └── bank_statement_api.py
-│
-├── schemas/               # Database models
-│   ├── user.schema.js
-│   ├── loan.schema.js
-│   └── audit.schema.js
-│
-├── seed/                  # Initial data
-│   └── demo_users.js
-│
-└── docker-compose.yml     # Container orchestration
-```
-
----
-
-## 🔒 Security Features
-
-### Authentication
-- ✅ JWT with 15-minute access tokens
-- ✅ 7-day refresh tokens
-- ✅ HttpOnly cookies
-- ✅ Password hashing with bcrypt
-
-### API Security
-- ✅ Rate limiting (60 req/min)
-- ✅ CORS configuration
-- ✅ Helmet security headers
-- ✅ Input validation (Joi/Zod)
-
-### Data Security
-- ✅ PII masking (PAN: XXXXX1234X)
-- ✅ SHA-256 hashing for IDs
-- ✅ Immutable audit logs
-- ✅ No raw ID storage
-
----
-
-## 📊 API Documentation
-
-### Authentication Endpoints
-
-#### Sign Up
-```http
-POST /api/auth/signup
-Content-Type: application/json
-
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "password123"
-}
-```
-
-#### Sign In
-```http
-POST /api/auth/signin
-Content-Type: application/json
-
-{
-  "email": "john@example.com",
-  "password": "password123"
-}
-
-Response:
-{
-  "success": true,
-  "accessToken": "eyJhbGc...",
-  "refreshToken": "eyJhbGc...",
-  "user": { ... }
-}
-```
-
-### Chat Endpoints
-
-#### Send Message
-```http
-POST /api/chat/message
-Content-Type: application/json
-Authorization: Bearer <token>
-
-{
-  "message": "I want a personal loan",
-  "loanId": "optional-existing-loan-id",
-  "userId": "user-id"
-}
-
-Response:
-{
-  "success": true,
-  "reply": "Great! How much would you like to borrow?",
-  "loanId": "65abc123...",
-  "state": "SALES",
-  "completed": false
-}
-```
-
-### Loan Endpoints
-
-#### Get User Loans
-```http
-GET /api/loans/user
-Authorization: Bearer <token>
-
-Response:
-{
-  "success": true,
-  "loans": [...]
-}
-```
-
-### Admin Endpoints
-
-#### Get All Loans
-```http
-GET /api/admin/loans?state=SALES&page=1&limit=20
-Authorization: Bearer <admin-token>
-```
-
-#### Get Stats
-```http
-GET /api/admin/stats
-Authorization: Bearer <admin-token>
-
-Response:
-{
-  "success": true,
-  "stats": {
-    "totalLoans": 150,
-    "activeLoans": 45,
-    "completedLoans": 105,
-    ...
-  }
-}
-```
-
----
+Policy files located in: `backend/policies/`
 
 ## 🧪 Testing
 
-### Test Mock APIs
+### Manual Test Scenarios
+
+**Scenario 1: Successful Application**
+```
+- Email: test@example.com
+- Income: ₹75,000
+- Employment: Salaried, 5 years
+- Requested: ₹500,000
+→ Should approve with LOW risk, ~12% interest
+```
+
+**Scenario 2: High Risk**
+```
+- Income: ₹30,000
+- Credit Score: 650 (simulated from mock data)
+- Existing EMI: ₹10,000
+→ Should approve with HIGH risk, ~17% interest
+```
+
+**Scenario 3: Policy Violation**
+```
+- Age: 65
+→ Should reject (exceeds max age)
+```
+
+**Scenario 4: Poor Credit**
+```
+- Credit Score: 550 (simulated)
+→ Should reject (below minimum)
+```
+
+### Run Automated Tests (Phase 2)
 
 ```bash
-# Test CIBIL
-curl http://localhost:8000/mock/cibil?pan=ABCDE1234F
-
-# Test Aadhaar
-curl http://localhost:8000/mock/aadhaar?number=123456789012
-
-# Test Master Agent
-curl -X POST http://localhost:8000/master \
-  -H "Content-Type: application/json" \
-  -d '{
-    "loan_id": "test123",
-    "user_message": "I want a personal loan",
-    "current_state": "INIT",
-    "loan_data": {}
-  }'
+docker-compose exec backend pytest -v
 ```
 
----
+## 🔒 Security Features
 
-## 🎨 UI Features
+- **JWT Authentication**: 24-hour expiry, refresh token support
+- **Rate Limiting**: Max 3 OTP requests per 15 minutes
+- **PII Encryption**: AES-256 for Aadhaar/PAN storage
+- **Input Validation**: Pydantic models on all endpoints
+- **PII Masking**: Raw data never sent to LLM
+- **Audit Logging**: Every decision recorded
+- **CORS Protection**: Restricted origins
+- **Role-Based Access**: User vs Admin permissions
 
-### Modern Design
-- ✨ Gradient hero sections
-- 🎭 Smooth animations with Framer Motion
-- 🌙 Dark mode support
-- 📱 Fully responsive
-- 🎯 Accessible components
+## 📊 System Architecture Details
 
-### Chat Interface
-- 💬 Real-time message streaming
-- 🤖 Bot/User message differentiation
-- ⏱️ Timestamps
-- 📍 State indicators
-- 🎨 Beautiful message bubbles
+### LangGraph Workflow Nodes
 
-### Dashboard
-- 📊 Application statistics
-- 📈 Progress tracking
-- 🔔 Status indicators
-- 📋 Application history
+1. **collect_basic_info**: LLM gathers income, employment, amount
+2. **verify_kyc**: Validates Aadhaar & PAN (90% success simulation)
+3. **fetch_credit_score**: Retrieves bureau data from mock dataset
+4. **calculate_affordability**: FOIR-based eligible amount
+5. **run_risk_assessment**: Weighted scoring (credit 40%, FOIR 30%, etc.)
+6. **generate_offer**: Risk-based interest rate determination
+7. **explain_offer**: LLM presents terms conversationally
+8. **await_acceptance**: User decision point
+9. **generate_sanction**: PDF sanction letter creation
+10. **simulate_disbursement**: Mock NEFT/RTGS transaction
 
----
+### Risk Scoring Model
 
-## 🔄 Development Workflow
+```
+Risk Score = (
+    Credit Score Factor    × 0.40 +
+    FOIR Factor           × 0.30 +
+    Employment Stability  × 0.15 +
+    City Tier            × 0.10 +
+    Bureau Flags         × 0.05
+)
 
-### Hot Reload
-
-All services support hot reload:
-- Frontend: Next.js auto-reload
-- Backend: Nodemon
-- Agents: Python auto-reload
-
-### Adding New Agents
-
-1. Create agent file in `agents/`
-2. Implement `process()` method
-3. Return JSON with required fields
-4. Register in `master_agent.py`
-
-```python
-class NewAgent:
-    def process(self, user_message, loan_data):
-        return {
-            'status': 'success',
-            'data': {},
-            'message': 'Response to user'
-        }
+Segments:
+- 0.0-0.3: LOW risk    → 11.5-12% interest
+- 0.3-0.6: MEDIUM risk → 14-15% interest
+- 0.6-1.0: HIGH risk   → 17-18% interest
 ```
 
----
+## 🗂️ Project Structure
 
-## 📈 Scaling Considerations
-
-### Horizontal Scaling
-- Load balance backend instances
-- Separate agent services
-- Redis cluster for sessions
-- MongoDB replica set
-
-### Performance
-- Redis caching for frequently accessed data
-- Database indexing on userId, state
-- Agent response caching
-- CDN for static assets
-
----
+```
+bank-agent/
+├── backend/
+│   ├── auth/              # OTP + JWT services
+│   ├── engines/           # Deterministic engines (KYC, Risk, etc.)
+│   ├── models/            # Pydantic models
+│   ├── policies/          # JSON policy rules
+│   ├── routes/            # FastAPI endpoints
+│   ├── workflows/         # LangGraph definitions
+│   ├── mock_data/         # Generators & seeds
+│   ├── scripts/           # Database seeding
+│   └── main.py            # FastAPI app entry
+├── frontend/
+│   ├── app/               # Next.js pages (App Router)
+│   ├── components/        # React components
+│   ├── hooks/             # Custom hooks
+│   └── lib/               # API client, utilities
+├── docs/
+│   ├── ARCHITECTURE.md    # Detailed architecture
+│   └── API.md             # Extended API docs
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
 
 ## 🐛 Troubleshooting
 
-### Common Issues
-
-**Port Already in Use**
-```bash
-# Kill process on port 3000, 5000, or 8000
-npx kill-port 3000 5000 8000
-```
-
-**MongoDB Connection Error**
-```bash
-# Check MongoDB is running
-docker ps | grep mongodb
-# Or restart
-docker-compose restart mongodb
-```
-
-**Agent Service Not Responding**
+### Container won't start
 ```bash
 # Check logs
-docker-compose logs agents
-# Restart service
-docker-compose restart agents
+docker-compose logs backend
+docker-compose logs frontend
+
+# Restart services
+docker-compose restart
 ```
 
----
+### Port conflicts
+```bash
+# Check what's using the ports
+# Windows:
+netstat -ano | findstr :8000
+netstat -ano | findstr :3000
 
-## 📝 Environment Variables
-
-### Frontend (.env.local)
-```env
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=your-secret-key
-BACKEND_URL=http://localhost:5000
+# macOS/Linux:
+lsof -i :8000
+lsof -i :3000
 ```
 
-### Backend (.env)
-```env
-PORT=5000
-MONGODB_URI=mongodb://mongodb:27017/bank_agent
-REDIS_URL=redis://redis:6379
-JWT_SECRET=your-jwt-secret
-JWT_REFRESH_SECRET=your-refresh-secret
-AGENT_SERVICE_URL=http://localhost:8000
+### MongoDB connection issues
+```bash
+# Verify MongoDB is healthy
+docker-compose ps
+docker-compose exec mongodb mongosh --eval "db.adminCommand('ping')"
 ```
 
----
+### Frontend can't reach backend
+```bash
+# Check NEXT_PUBLIC_API_URL in frontend container
+docker-compose exec frontend printenv | grep API
+```
+
+## 📈 Roadmap
+
+**Phase 1 (Current):**
+- ✅ Personal Loan complete flow
+- ✅ LangGraph orchestration
+- ✅ Mock data generators
+- ✅ Basic admin dashboard
+
+**Phase 2 (Next):**
+- [ ] Home, Vehicle, Business, Credit Card loans
+- [ ] Enhanced analytics dashboard
+- [ ] Document upload & processing
+- [ ] Prepayment calculator
+- [ ] Comprehensive test suite
+
+**Phase 3 (Future):**
+- [ ] Real-time notifications
+- [ ] Multi-language support
+- [ ] Mobile app (React Native)
+- [ ] ML-based credit scoring
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open Pull Request
-
----
+This is a hackathon/educational project demonstrating NBFC digital lending architecture.
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file
+MIT License - See LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Architecture inspired by Tata Capital's digital lending practices
+- Policies based on RBI digital lending guidelines
+- Built with LangGraph for stateful LLM workflows
+
+## 📞 Support
+
+For issues or questions:
+- GitHub Issues: https://github.com/Ritam-Vaskar/bank-agent-nbfc/issues
+- Email: ritamvaskar@example.com
 
 ---
 
-## 🎯 Roadmap
+**⚠️ Disclaimer**: This is a simulation platform for educational/hackathon purposes. Not intended for real financial transactions. Mock data and dummy integrations only.
 
-- [ ] WhatsApp integration
-- [ ] Voice-based loan application
-- [ ] AI-powered document OCR
-- [ ] Multi-language support
-- [ ] Mobile apps (React Native)
-- [ ] Real CIBIL/Aadhaar integration
-- [ ] E-sign integration
-- [ ] Payment gateway integration
-
----
-
-## 👥 Support
-
-- 📧 Email: support@bankagent.com
-- 💬 Discord: [Join our community](#)
-- 📚 Docs: [Full documentation](#)
-- 🐛 Issues: [GitHub Issues](#)
-
----
-
-<div align="center">
-
-**Built with ❤️ for the future of banking**
-
-⭐ Star us on GitHub if you find this helpful!
-
-</div>
+**Built with ❤️ for the future of digital lending**

@@ -47,23 +47,19 @@ class OTPService:
         # Generate OTP
         otp = OTPService.generate_otp()
         
-        # Hash OTP
-        hashed_otp = OTPService.hash_otp(otp)
-        
-        # Store in Redis with expiry
+        # Store plain OTP in Redis (for development - in production use hashing)
         expiry_seconds = settings.OTP_EXPIRY_MINUTES * 60
-        await redis_client.set_otp(email, hashed_otp, expiry_seconds)
+        
+        # Store directly without hashing for development
+        key = f"otp:{email}"
+        data = {
+            "otp": otp,  # Store plain OTP
+            "attempts": "0"
+        }
+        await redis_client.client.hset(key, mapping=data)
+        await redis_client.client.expire(key, expiry_seconds)
         
         logger.info(f"OTP generated for {email} (expires in {settings.OTP_EXPIRY_MINUTES} minutes)")
-        
-        return otp
-    
-    @staticmethod
-    async def send_otp_email(email: str, otp: str):
-        """
-        Simulate sending OTP via email
-        In production, integrate with SendGrid, AWS SES, etc.
-        """
         # In development, log to console
         if settings.is_development:
             logger.info("=" * 60)
@@ -99,9 +95,9 @@ class OTPService:
             await redis_client.delete_otp(email)
             return False, f"Maximum {settings.OTP_MAX_ATTEMPTS} attempts exceeded. Please request a new OTP."
         
-        # Verify OTP
-        hashed_otp = otp_data.get("hashed_otp")
-        if not OTPService.verify_otp_hash(otp, hashed_otp):
+        # Verify OTP (direct comparison for development)
+        stored_otp = otp_data.get("otp")
+        if not stored_otp or stored_otp != otp:
             # Increment attempts
             await redis_client.increment_otp_attempts(email)
             remaining = settings.OTP_MAX_ATTEMPTS - attempts - 1

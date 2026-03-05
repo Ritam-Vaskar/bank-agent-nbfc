@@ -18,15 +18,21 @@ import os
 # Ensure logs directory exists
 os.makedirs('logs', exist_ok=True)
 
-# Configure logging
+# Configure logging with UTF-8 encoding for Windows compatibility
 logging.basicConfig(
     level=logging.INFO if settings.is_development else logging.WARNING,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/app.log'),
+        logging.FileHandler('logs/app.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
+
+# Set console handler encoding to UTF-8 for emoji support on Windows
+for handler in logging.root.handlers:
+    if isinstance(handler, logging.StreamHandler):
+        handler.stream.reconfigure(encoding='utf-8')
+
 logger = logging.getLogger(__name__)
 
 

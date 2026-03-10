@@ -23,11 +23,15 @@ export default function LoanDetailsPage() {
   const params = useParams();
   const loanId = params?.loanId;
   
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, initAuth } = useAuthStore();
   const [loan, setLoan] = useState(null);
   const [emiSchedule, setEmiSchedule] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   useEffect(() => {
     if (!isAuthenticated) {

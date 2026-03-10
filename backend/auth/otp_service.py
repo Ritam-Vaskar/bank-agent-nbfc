@@ -76,6 +76,8 @@ class OTPService:
             # In production, use real email service
             # await email_service.send(email, "OTP", otp)
             pass
+        
+        return otp
     
     @staticmethod
     async def verify_otp(email: str, otp: str) -> Tuple[bool, Optional[str]]:

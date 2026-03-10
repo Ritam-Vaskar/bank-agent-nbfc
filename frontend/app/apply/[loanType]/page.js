@@ -17,7 +17,7 @@ export default function ApplyPage() {
   const params = useParams();
   const loanType = params?.loanType || 'personal';
   
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, initAuth } = useAuthStore();
   const {
     currentApplicationId,
     messages,
@@ -29,6 +29,10 @@ export default function ApplyPage() {
   } = useApplicationStore();
 
   const [loanOffer, setLoanOffer] = useState(null);
+
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   useEffect(() => {
     if (!isAuthenticated) {

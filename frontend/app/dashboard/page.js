@@ -23,10 +23,14 @@ import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const router = useRouter();
-  const { user, clearAuth, isAuthenticated } = useAuthStore();
+  const { user, clearAuth, isAuthenticated, initAuth } = useAuthStore();
   const [activeLoans, setActiveLoans] = useState([]);
   const [applications, setApplications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   useEffect(() => {
     if (!isAuthenticated) {

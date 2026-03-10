@@ -59,7 +59,7 @@ export const authAPI = {
 
 // Loans API
 export const loansAPI = {
-  applyForLoan: (loanType) => api.post('/loans/apply', { loan_type: loanType }),
+  applyForLoan: (loanType) => api.post('/loans/apply', null, { params: { loan_type: loanType } }),
   sendMessage: (applicationId, message) => 
     api.post(`/loans/applications/${applicationId}/chat`, { message }),
   getApplications: (status) => api.get('/loans/applications', { params: status ? { status } : {} }),

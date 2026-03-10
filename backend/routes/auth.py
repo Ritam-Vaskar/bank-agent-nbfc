@@ -26,11 +26,8 @@ async def request_otp(request: OTPRequest):
     Generates and sends OTP to provided email
     """
     try:
-        # Generate and store OTP
+        # Generate and store OTP (also sends it in development mode)
         otp = await otp_service.create_and_store_otp(request.email)
-        
-        # Send OTP (simulated in development)
-        await otp_service.send_otp_email(request.email, otp)
         
         return {
             "message": f"OTP sent to {request.email}",

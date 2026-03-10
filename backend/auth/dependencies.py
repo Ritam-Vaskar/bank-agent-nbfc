@@ -35,7 +35,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> UserR
         )
     
     # Verify token
-    payload = jwt_service.verify_token(token)
+    payload = await jwt_service.verify_token(token)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

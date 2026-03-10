@@ -53,27 +53,27 @@ class MongoDB:
     @property
     def users(self):
         """Users collection"""
-        return self.db.users if self.db else None
+        return self.db.users if self.db is not None else None
     
     @property
     def loan_applications(self):
         """Loan applications collection"""
-        return self.db.loan_applications if self.db else None
+        return self.db.loan_applications if self.db is not None else None
     
     @property
     def loans(self):
         """Loans collection"""
-        return self.db.loans if self.db else None
+        return self.db.loans if self.db is not None else None
     
     @property
     def audit_logs(self):
         """Audit logs collection"""
-        return self.db.audit_logs if self.db else None
+        return self.db.audit_logs if self.db is not None else None
     
     @property
     def consent_records(self):
         """Consent records collection"""
-        return self.db.consent_records if self.db else None
+        return self.db.consent_records if self.db is not None else None
 
 
 class RedisClient:

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authAPI } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
@@ -12,11 +12,16 @@ import { Building2, Shield, Zap, TrendingUp } from 'lucide-react';
 
 export default function Home() {
   const router = useRouter();
-  const setAuth = useAuthStore((state) => state.setAuth);
+  const { setAuth, initAuth } = useAuthStore();
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isOTPSent, setIsOTPSent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Initialize auth from localStorage on mount
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   const handleRequestOTP = async (e) => {
     e.preventDefault();

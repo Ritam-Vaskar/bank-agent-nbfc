@@ -1,36 +1,40 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 
-// Auth Store
-export const useAuthStore = create(
-  persist(
-    (set) => ({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-      setAuth: (user, token) => {
-        set({ user, token, isAuthenticated: true });
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('token', token);
-          localStorage.setItem('user', JSON.stringify(user));
-        }
-      },
-      clearAuth: () => {
-        set({ user: null, token: null, isAuthenticated: false });
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-        }
-      },
-    }),
-    {
-      name: 'auth-storage',
-      storage: createJSONStorage(() => 
-        typeof window !== 'undefined' ? localStorage : undefined
-      ),
+// Auth Store (without persistence for SSR compatibility)
+export const useAuthStore = create((set) => ({
+  user: null,
+  token: null,
+  isAuthenticated: false,
+  setAuth: (user, token) => {
+    set({ user, token, isAuthenticated: true });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
     }
-  )
-);
+  },
+  clearAuth: () => {
+    set({ user: null, token: null, isAuthenticated: false });
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
+  },
+  // Initialize from localStorage on client
+  initAuth: () => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('token');
+      const userStr = localStorage.getItem('user');
+      if (token && userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          set({ user, token, isAuthenticated: true });
+        } catch (e) {
+          console.error('Failed to parse stored user:', e);
+        }
+      }
+    }
+  },
+}));
 
 // Application Store
 export const useApplicationStore = create((set) => ({

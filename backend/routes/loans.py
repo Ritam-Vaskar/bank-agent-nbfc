@@ -11,7 +11,7 @@ import uuid
 
 from auth.dependencies import get_current_user
 from models.user import User
-from models.loan_application import LoanApplication, ApplicationData, ConversationMessage
+from models.loan_application import LoanApplication, ApplicationData, ConversationMessage, ChatMessage
 from models.loan import Loan
 from database import mongodb, redis_client
 from workflows.loan_graph import loan_workflow, LoanWorkflowState
@@ -64,7 +64,11 @@ async def start_loan_application(
         }
         
         # Run first two nodes (init + collect_info greeting)
-        result_state = loan_workflow.invoke(initial_state)
+        # Use recursion_limit to prevent infinite loops
+        result_state = loan_workflow.invoke(
+            initial_state,
+            config={"recursion_limit": 5}
+        )
         
         # Save application to database
         application_doc = {
@@ -103,7 +107,7 @@ async def start_loan_application(
 @router.post("/applications/{application_id}/chat")
 async def chat_with_workflow(
     application_id: str,
-    message: str,
+    chat_message: ChatMessage,
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -112,13 +116,15 @@ async def chat_with_workflow(
     
     Args:
         application_id: Application ID
-        message: User's message
+        chat_message: User's message and metadata
         current_user: Authenticated user
     
     Returns:
         Updated conversation and workflow state
     """
     try:
+        message = chat_message.message
+        
         # Fetch current application state
         app_doc = await mongodb.loan_applications.find_one({
             "application_id": application_id,
@@ -258,7 +264,11 @@ async def chat_with_workflow(
             state["application_data"] = app_data
         
         # Run workflow with updated state
-        result_state = loan_workflow.invoke(state)
+        # Use recursion_limit to prevent infinite loops
+        result_state = loan_workflow.invoke(
+            state,
+            config={"recursion_limit": 10}
+        )
         
         # Update database
         update_doc = {

@@ -35,7 +35,11 @@ const ChatMessage = ({ message, isUser }) => {
               : 'bg-gray-100 text-gray-900 rounded-tl-none'
           )}
         >
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          <p className="text-sm whitespace-pre-wrap">
+            {typeof message.content === 'string' 
+              ? message.content 
+              : JSON.stringify(message.content)}
+          </p>
         </div>
         {message.timestamp && (
           <span className="text-xs text-gray-500 px-1">

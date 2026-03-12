@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRY_HOURS: int = 24
     
-    # OpenAI Configuration
-    OPENAI_API_KEY: str = ""
+    # Groq LLM Configuration
+    GROQ_API_KEY: str = ""
     
     # Encryption Configuration
     ENCRYPTION_KEY: str = ""

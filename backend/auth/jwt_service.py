@@ -78,7 +78,13 @@ class JWTService:
         except jwt.ExpiredSignatureError:
             logger.warning("Token has expired")
             return None
-        except jwt.JWTError as e:
+        except jwt.InvalidSignatureError as e:
+            logger.error(f"Invalid token signature: {e}")
+            return None
+        except jwt.DecodeError as e:
+            logger.error(f"Token decode error: {e}")
+            return None
+        except Exception as e:
             logger.error(f"JWT validation error: {e}")
             return None
     

@@ -5,7 +5,7 @@ Stateful workflow orchestration using LangGraph
 
 from typing import TypedDict, Annotated, Literal, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import logging
 from datetime import datetime
@@ -78,11 +78,12 @@ class LoanWorkflowState(TypedDict):
     updated_at: str
 
 
-# Initialize LLM
-llm = ChatOpenAI(
-    model="gpt-4",
+# Initialize LLM with Groq (fast, generous free tier)
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",  # Latest Llama 3.3 model
     temperature=0.3,
-    openai_api_key=settings.OPENAI_API_KEY
+    groq_api_key=settings.GROQ_API_KEY,
+    max_retries=2
 )
 
 
@@ -596,14 +597,18 @@ def handle_rejection_node(state: LoanWorkflowState) -> LoanWorkflowState:
 
 def should_continue_after_info(state: LoanWorkflowState) -> str:
     """Check if enough information collected"""
-    # In real implementation, parse responses to check completeness
-    # For now, assume ready when application_data has key fields
+    # Check if we have all required fields
     app_data = state.get("application_data", {})
     required_fields = ["aadhaar", "pan", "monthly_income", "requested_amount", "tenure_months"]
     
     if all(field in app_data for field in required_fields):
+        logger.info(f"All required fields collected, proceeding to KYC verification")
         return "verify_kyc"
-    return "collect_info"
+    
+    # Otherwise, stop and wait for more user input
+    # Don't loop back to collect_info - that will trigger LLM again
+    logger.info(f"Missing fields: {[f for f in required_fields if f not in app_data]}, waiting for user input")
+    return END
 
 
 def should_continue_after_kyc(state: LoanWorkflowState) -> str:

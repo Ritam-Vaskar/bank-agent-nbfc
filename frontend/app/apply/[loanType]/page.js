@@ -45,15 +45,16 @@ export default function ApplyPage() {
   const initializeApplication = async () => {
     try {
       const response = await loansAPI.applyForLoan(loanType);
-      const { application_id, message } = response.data;
+      const { application_id, messages: backendMessages } = response.data;
       setCurrentApplication(application_id);
-      setMessages([
-        {
-          role: 'assistant',
-          content: message,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      
+      // Convert backend messages to frontend format
+      const formattedMessages = backendMessages.map(msg => ({
+        ...msg,
+        timestamp: msg.timestamp || new Date().toISOString(),
+      }));
+      
+      setMessages(formattedMessages);
     } catch (error) {
       console.error('Failed to initialize application:', error);
       toast.error('Failed to start application');
@@ -73,15 +74,15 @@ export default function ApplyPage() {
 
     try {
       const response = await loansAPI.sendMessage(currentApplicationId, message);
-      const { message: agentMessage, workflow_state, loan_offer } = response.data;
+      const { messages: backendMessages, stage, loan_offer, completed } = response.data;
 
-      // Add agent message
-      const assistantMessage = {
-        role: 'assistant',
-        content: agentMessage,
-        timestamp: new Date().toISOString(),
-      };
-      addMessage(assistantMessage);
+      // Update all messages from backend (includes both user and assistant messages)
+      const formattedMessages = backendMessages.map(msg => ({
+        ...msg,
+        timestamp: msg.timestamp || new Date().toISOString(),
+      }));
+      
+      setMessages(formattedMessages);
 
       // Check if loan offer is generated
       if (loan_offer) {
@@ -89,12 +90,25 @@ export default function ApplyPage() {
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      
+      // Extract error message
+      let errorText = 'Sorry, something went wrong. Please try again.';
+      if (error.response?.data?.detail) {
+        if (typeof error.response.data.detail === 'string') {
+          errorText = error.response.data.detail;
+        } else if (Array.isArray(error.response.data.detail)) {
+          // Handle FastAPI validation errors
+          errorText = error.response.data.detail.map(err => err.msg).join(', ');
+        }
+      }
+      
       const errorMessage = {
         role: 'assistant',
-        content: 'Sorry, something went wrong. Please try again.',
+        content: errorText,
         timestamp: new Date().toISOString(),
       };
       addMessage(errorMessage);
+      toast.error(errorText);
     } finally {
       setLoading(false);
     }

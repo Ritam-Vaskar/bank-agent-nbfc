@@ -12,7 +12,7 @@ import { Building2, Shield, Zap, TrendingUp } from 'lucide-react';
 
 export default function Home() {
   const router = useRouter();
-  const { setAuth, initAuth } = useAuthStore();
+  const { setAuth, isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isOTPSent, setIsOTPSent] = useState(false);
@@ -22,6 +22,12 @@ export default function Home() {
   useEffect(() => {
     initAuth();
   }, [initAuth]);
+
+  useEffect(() => {
+    if (isAuthInitialized && isAuthenticated) {
+      router.push('/dashboard');
+    }
+  }, [isAuthenticated, isAuthInitialized, router]);
 
   const handleRequestOTP = async (e) => {
     e.preventDefault();

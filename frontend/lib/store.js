@@ -5,15 +5,16 @@ export const useAuthStore = create((set) => ({
   user: null,
   token: null,
   isAuthenticated: false,
+  isAuthInitialized: false,
   setAuth: (user, token) => {
-    set({ user, token, isAuthenticated: true });
+    set({ user, token, isAuthenticated: true, isAuthInitialized: true });
     if (typeof window !== 'undefined') {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
     }
   },
   clearAuth: () => {
-    set({ user: null, token: null, isAuthenticated: false });
+    set({ user: null, token: null, isAuthenticated: false, isAuthInitialized: true });
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
@@ -27,11 +28,18 @@ export const useAuthStore = create((set) => ({
       if (token && userStr) {
         try {
           const user = JSON.parse(userStr);
-          set({ user, token, isAuthenticated: true });
+          set({ user, token, isAuthenticated: true, isAuthInitialized: true });
         } catch (e) {
           console.error('Failed to parse stored user:', e);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          set({ user: null, token: null, isAuthenticated: false, isAuthInitialized: true });
         }
+      } else {
+        set({ user: null, token: null, isAuthenticated: false, isAuthInitialized: true });
       }
+    } else {
+      set({ isAuthInitialized: true });
     }
   },
 }));

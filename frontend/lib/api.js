@@ -36,7 +36,7 @@ api.interceptors.response.use(
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        if (!window.location.pathname.includes('/')) {
+        if (window.location.pathname !== '/') {
           toast.error('Session expired. Please login again.');
           window.location.href = '/';
         }

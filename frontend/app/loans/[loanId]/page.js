@@ -23,7 +23,7 @@ export default function LoanDetailsPage() {
   const params = useParams();
   const loanId = params?.loanId;
   
-  const { isAuthenticated, initAuth } = useAuthStore();
+  const { isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
   const [loan, setLoan] = useState(null);
   const [emiSchedule, setEmiSchedule] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -34,14 +34,19 @@ export default function LoanDetailsPage() {
   }, [initAuth]);
 
   useEffect(() => {
+    if (!isAuthInitialized) {
+      return;
+    }
+
     if (!isAuthenticated) {
       router.push('/');
       return;
     }
+
     if (loanId) {
       fetchLoanDetails();
     }
-  }, [isAuthenticated, loanId]);
+  }, [isAuthenticated, isAuthInitialized, loanId]);
 
   const fetchLoanDetails = async () => {
     setIsLoading(true);
@@ -74,7 +79,7 @@ export default function LoanDetailsPage() {
     }
   };
 
-  if (!isAuthenticated || isLoading) {
+  if (!isAuthInitialized || !isAuthenticated || isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600" />

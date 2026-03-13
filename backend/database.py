@@ -5,12 +5,90 @@ Handles MongoDB and Redis connections
 
 import motor.motor_asyncio
 import redis.asyncio as aioredis
-from typing import Optional
+from typing import Optional, Any
 import logging
+import time
 
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class InMemoryRedis:
+    """Minimal async Redis-compatible fallback used when Redis is unavailable."""
+
+    def __init__(self):
+        self._store = {}
+        self._expiry = {}
+
+    def _purge_if_expired(self, key: str):
+        expiry = self._expiry.get(key)
+        if expiry is not None and time.time() > expiry:
+            self._store.pop(key, None)
+            self._expiry.pop(key, None)
+
+    async def ping(self):
+        return True
+
+    async def close(self):
+        return None
+
+    async def hset(self, key: str, mapping: dict):
+        self._purge_if_expired(key)
+        current = self._store.get(key)
+        if not isinstance(current, dict):
+            current = {}
+        current.update({k: str(v) for k, v in mapping.items()})
+        self._store[key] = current
+        return len(mapping)
+
+    async def hgetall(self, key: str):
+        self._purge_if_expired(key)
+        value = self._store.get(key)
+        if isinstance(value, dict):
+            return value.copy()
+        return {}
+
+    async def hincrby(self, key: str, field: str, increment: int):
+        self._purge_if_expired(key)
+        current = self._store.get(key)
+        if not isinstance(current, dict):
+            current = {}
+        new_value = int(current.get(field, "0")) + increment
+        current[field] = str(new_value)
+        self._store[key] = current
+        return new_value
+
+    async def expire(self, key: str, seconds: int):
+        if key in self._store:
+            self._expiry[key] = time.time() + max(seconds, 0)
+            return True
+        return False
+
+    async def delete(self, key: str):
+        existed = key in self._store
+        self._store.pop(key, None)
+        self._expiry.pop(key, None)
+        return 1 if existed else 0
+
+    async def set(self, key: str, value: str, ex: Optional[int] = None):
+        self._store[key] = value
+        if ex is not None:
+            self._expiry[key] = time.time() + max(ex, 0)
+        else:
+            self._expiry.pop(key, None)
+        return True
+
+    async def setex(self, key: str, seconds: int, value: str):
+        return await self.set(key, value, ex=seconds)
+
+    async def get(self, key: str):
+        self._purge_if_expired(key)
+        return self._store.get(key)
+
+    async def exists(self, key: str):
+        self._purge_if_expired(key)
+        return 1 if key in self._store else 0
 
 
 class MongoDB:
@@ -80,7 +158,7 @@ class RedisClient:
     """Redis connection manager"""
     
     def __init__(self):
-        self.client: Optional[aioredis.Redis] = None
+        self.client: Optional[Any] = None
         self._is_connected = False
     
     async def connect(self):
@@ -96,8 +174,10 @@ class RedisClient:
             self._is_connected = True
             logger.info("Connected to Redis")
         except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            raise
+            logger.warning(f"Failed to connect to Redis: {e}")
+            self.client = InMemoryRedis()
+            self._is_connected = False
+            logger.warning("Using in-memory Redis fallback (data will not persist across restarts)")
     
     async def disconnect(self):
         """Close Redis connection"""

@@ -17,7 +17,7 @@ export default function ApplyPage() {
   const params = useParams();
   const loanType = params?.loanType || 'personal';
   
-  const { isAuthenticated, initAuth } = useAuthStore();
+  const { isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
   const {
     currentApplicationId,
     messages,
@@ -35,12 +35,17 @@ export default function ApplyPage() {
   }, [initAuth]);
 
   useEffect(() => {
+    if (!isAuthInitialized) {
+      return;
+    }
+
     if (!isAuthenticated) {
       router.push('/');
       return;
     }
+
     initializeApplication();
-  }, [isAuthenticated, loanType]);
+  }, [isAuthenticated, isAuthInitialized, loanType]);
 
   const initializeApplication = async () => {
     try {
@@ -133,7 +138,7 @@ export default function ApplyPage() {
 
   const currentStepIndex = messages.length > 0 ? Math.min(Math.floor(messages.length / 3), 3) : 0;
 
-  if (!isAuthenticated) return null;
+  if (!isAuthInitialized || !isAuthenticated) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">

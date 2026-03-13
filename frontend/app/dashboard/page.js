@@ -23,7 +23,7 @@ import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const router = useRouter();
-  const { user, clearAuth, isAuthenticated, initAuth } = useAuthStore();
+  const { user, clearAuth, isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
   const [activeLoans, setActiveLoans] = useState([]);
   const [applications, setApplications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,12 +33,17 @@ export default function Dashboard() {
   }, [initAuth]);
 
   useEffect(() => {
+    if (!isAuthInitialized) {
+      return;
+    }
+
     if (!isAuthenticated) {
       router.push('/');
       return;
     }
+
     fetchData();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAuthInitialized]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -93,7 +98,7 @@ export default function Dashboard() {
     pendingApplications: applications.filter((app) => app.status === 'in_progress').length,
   };
 
-  if (!isAuthenticated) return null;
+  if (!isAuthInitialized || !isAuthenticated) return null;
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -58,10 +58,12 @@ async def lifespan(app: FastAPI):
     # Connect to Redis
     try:
         await redis_client.connect()
-        logger.info("✅ Redis connected successfully")
+        if redis_client.is_connected:
+            logger.info("✅ Redis connected successfully")
+        else:
+            logger.warning("⚠️  Redis unavailable, running with in-memory fallback")
     except Exception as e:
-        logger.error(f"❌ Redis connection failed: {e}")
-        raise
+        logger.warning(f"⚠️  Redis connection failed, continuing in degraded mode: {e}")
     
     # Load mock bureau data
     try:

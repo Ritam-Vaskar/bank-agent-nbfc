@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 // Auth Store (without persistence for SSR compatibility)
 export const useAuthStore = create((set) => ({
@@ -44,18 +45,75 @@ export const useAuthStore = create((set) => ({
   },
 }));
 
-// Application Store
-export const useApplicationStore = create((set) => ({
+const applicationInitialState = {
   currentApplicationId: null,
+  currentLoanType: null,
   messages: [],
+  workflowStage: null,
+  applicationStatus: null,
+  loanOffer: null,
+  loanId: null,
+  isCompleted: false,
   isLoading: false,
-  setCurrentApplication: (id) => set({ currentApplicationId: id }),
-  addMessage: (message) =>
-    set((state) => ({ messages: [...state.messages, message] })),
-  setMessages: (messages) => set({ messages }),
-  clearMessages: () => set({ messages: [], currentApplicationId: null }),
-  setLoading: (isLoading) => set({ isLoading }),
-}));
+};
+
+// Application Store
+export const useApplicationStore = create(
+  persist(
+    (set) => ({
+      ...applicationInitialState,
+      setCurrentApplication: (id, loanType = null) =>
+        set((state) => ({
+          currentApplicationId: id,
+          currentLoanType: loanType ?? state.currentLoanType,
+        })),
+      setApplicationSnapshot: ({
+        applicationId,
+        loanType,
+        messages,
+        stage,
+        status,
+        loanOffer,
+        loanId,
+        isCompleted,
+      }) =>
+        set((state) => ({
+          currentApplicationId: applicationId ?? state.currentApplicationId,
+          currentLoanType: loanType ?? state.currentLoanType,
+          messages: messages ?? state.messages,
+          workflowStage: stage ?? state.workflowStage,
+          applicationStatus: status ?? state.applicationStatus,
+          loanOffer: loanOffer ?? state.loanOffer,
+          loanId: loanId ?? state.loanId,
+          isCompleted: isCompleted ?? state.isCompleted,
+        })),
+      addMessage: (message) =>
+        set((state) => ({ messages: [...state.messages, message] })),
+      setMessages: (messages) => set({ messages }),
+      setWorkflowStage: (workflowStage) => set({ workflowStage }),
+      setApplicationStatus: (applicationStatus) => set({ applicationStatus }),
+      setLoanOffer: (loanOffer) => set({ loanOffer }),
+      setLoanId: (loanId) => set({ loanId }),
+      setCompleted: (isCompleted) => set({ isCompleted }),
+      clearMessages: () => set({ ...applicationInitialState }),
+      setLoading: (isLoading) => set({ isLoading }),
+    }),
+    {
+      name: 'loan-application-store',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        currentApplicationId: state.currentApplicationId,
+        currentLoanType: state.currentLoanType,
+        messages: state.messages,
+        workflowStage: state.workflowStage,
+        applicationStatus: state.applicationStatus,
+        loanOffer: state.loanOffer,
+        loanId: state.loanId,
+        isCompleted: state.isCompleted,
+      }),
+    }
+  )
+);
 
 // UI Store
 export const useUIStore = create((set) => ({

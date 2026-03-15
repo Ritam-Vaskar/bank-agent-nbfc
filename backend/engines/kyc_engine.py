@@ -111,7 +111,7 @@ class KYCEngine:
     def verify_aadhaar(self, aadhaar: str) -> Tuple[bool, dict]:
         """
         Simulate Aadhaar verification
-        90% success rate for valid format
+        Deterministic success for valid format in mock mode
         """
         # Validate format
         is_valid, error = self.validate_aadhaar_format(aadhaar)
@@ -122,26 +122,17 @@ class KYCEngine:
                 "masked": "XXXX-XXXX-XXXX"
             }
         
-        # Simulate verification (90% success)
-        success = random.random() < 0.9
-        
-        if success:
-            return True, {
-                "status": "VERIFIED",
-                "masked": self.mask_aadhaar(aadhaar),
-                "verification_id": f"AADHAAR-{random.randint(100000, 999999)}"
-            }
-        else:
-            return False, {
-                "status": "FAILED",
-                "reason": "Aadhaar verification failed. Please retry or contact support.",
-                "masked": self.mask_aadhaar(aadhaar)
-            }
+        return True, {
+            "status": "VERIFIED",
+            "provider": "UIDAI_MOCK",
+            "masked": self.mask_aadhaar(aadhaar),
+            "verification_id": f"AADHAAR-{random.randint(100000, 999999)}"
+        }
     
     def verify_pan(self, pan: str) -> Tuple[bool, dict]:
         """
         Simulate PAN verification
-        90% success rate for valid format
+        Deterministic success for valid format in mock mode
         """
         # Validate format
         is_valid, error = self.validate_pan_format(pan)
@@ -152,23 +143,14 @@ class KYCEngine:
                 "masked": "XX***XXXXX"
             }
         
-        # Simulate verification (90% success)
-        success = random.random() < 0.9
-        
-        if success:
-            return True, {
-                "status": "VERIFIED",
-                "masked": self.mask_pan(pan),
-                "verification_id": f"PAN-{random.randint(100000, 999999)}"
-            }
-        else:
-            return False, {
-                "status": "FAILED",
-                "reason": "PAN verification failed. Please check and retry.",
-                "masked": self.mask_pan(pan)
-            }
+        return True, {
+            "status": "VERIFIED",
+            "provider": "PAN_MOCK",
+            "masked": self.mask_pan(pan),
+            "verification_id": f"PAN-{random.randint(100000, 999999)}"
+        }
     
-    def process_kyc(self, aadhaar: str, pan: str) -> dict:
+    def process_kyc(self, aadhaar: str, pan: str, user_id: str = None) -> dict:
         """
         Complete KYC processing
         Validates, verifies, encrypts, and returns masked data

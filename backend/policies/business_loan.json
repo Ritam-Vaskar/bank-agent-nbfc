@@ -1,0 +1,92 @@
+{
+  "loan_type": "business_loan",
+  "version": "1.0.0",
+  "effective_date": "2026-01-01",
+  "description": "Business loan policy for self-employed individuals and SMEs",
+
+  "eligibility_rules": {
+    "min_age": 25,
+    "max_age": 65,
+    "min_credit_score": 700,
+    "min_income": 50000,
+    "employment_types_allowed": ["self_employed", "business"],
+    "citizenship_required": "Indian"
+  },
+
+  "loan_parameters": {
+    "min_amount": 100000,
+    "max_amount": 10000000,
+    "min_tenure_months": 12,
+    "max_tenure_months": 84,
+    "foir_limit": 0.65
+  },
+
+  "interest_slabs": {
+    "LOW": {
+      "rate": 13.5,
+      "description": "Excellent credit profile, established business",
+      "conditions": "Credit score >= 750, business vintage >= 5 years"
+    },
+    "MEDIUM": {
+      "rate": 16.0,
+      "description": "Good credit profile, growing business",
+      "conditions": "Credit score 700-749"
+    },
+    "HIGH": {
+      "rate": 20.0,
+      "description": "Acceptable profile, early-stage or volatile business",
+      "conditions": "Credit score 700-720 or business vintage < 2 years"
+    }
+  },
+
+  "fees_and_charges": {
+    "processing_fee_percent": 2.0,
+    "processing_fee_min": 2500,
+    "processing_fee_max": 50000,
+    "prepayment_charge_percent": 3.0,
+    "prepayment_allowed_after_months": 12,
+    "late_payment_charge_percent": 3.0,
+    "bounce_charge": 1000
+  },
+
+  "required_documents": [
+    "PAN",
+    "Aadhaar",
+    "business_registration",
+    "gst_certificate",
+    "bank_statement_12m",
+    "itr_2_years"
+  ],
+
+  "compliance": {
+    "rbi_guidelines": "RBI/2022-23/90 DOR.STR.REC.51/21.04.048/2022-23",
+    "fair_practices_code": true,
+    "grievance_redressal": "complaints@nbfc-loan-platform.com",
+    "cooling_period_hours": 24,
+    "mandate_registration_required": true
+  },
+
+  "risk_adjustments": {
+    "city_tier_1_discount": 0.20,
+    "city_tier_2_neutral": 0.0,
+    "city_tier_3_premium": 0.75,
+    "self_employed_premium": 0.0,
+    "existing_customer_discount": 0.25
+  },
+
+  "bureau_criteria": {
+    "max_active_loans": 6,
+    "max_dpd_30_days": 2,
+    "max_total_outstanding_ratio": 6.0,
+    "bureau_flags_allowed": []
+  },
+
+  "auto_approval_criteria": {
+    "enabled": false,
+    "max_amount": 0,
+    "min_credit_score": 800,
+    "max_foir": 0.5,
+    "employment_type": "self_employed",
+    "min_months_employment": 60
+  }
+}

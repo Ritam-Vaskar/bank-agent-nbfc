@@ -154,11 +154,11 @@ class PolicyEngine:
         if application_data:
             risk_adjustments = policy.get("risk_adjustments", {})
             adjustment = 0.0
-            
+
 # City tier adjustment
             city_tier = application_data.get("city_tier")
             if city_tier == 1:
-                adjustment += risk_adjustments.get("city_tier_1_discount", 0)
+                adjustment -= risk_adjustments.get("city_tier_1_discount", 0)  # discount = lower rate
             elif city_tier == 3:
                 adjustment += risk_adjustments.get("city_tier_3_premium", 0)
             

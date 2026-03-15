@@ -3,12 +3,12 @@ Credit Bureau Engine - Mock CIBIL/credit report fetching
 """
 
 import random
-import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any, Optional
 
-from database import redis_client
+from config import BASE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,66 @@ class BureauEngine:
     
     # Mock dataset - will be replaced with actual data generation
     _mock_data = {}
+    _seed_profiles = {
+        "ABCDE1234F": {
+            "pan": "ABCDE1234F",
+            "name": "Demo Customer",
+            "credit_score": 782,
+            "score_tier": "excellent",
+            "active_loans": 1,
+            "total_outstanding": 125000.0,
+            "existing_emi": 6240.0,
+            "dpd_30_days": 0,
+            "bureau_flags": [],
+            "credit_history_length_months": 84,
+            "last_updated": "2026-03-10",
+            "generated_at": "2026-03-10T00:00:00",
+            "bureau": "CIBIL_MOCK"
+        }
+    }
+
+    @classmethod
+    def load_mock_dataset(cls) -> Dict[str, Any]:
+        """
+        Load mock bureau dataset from JSON files and index by PAN.
+        """
+        candidate_files = [
+            os.path.join(BASE_DIR, "generated", "credit_bureau_data.json"),
+            os.path.join(BASE_DIR, "mock_data", "generated", "credit_bureau_data.json"),
+            os.path.join(BASE_DIR, "mock_data", "seeds", "credit_bureau_sample.json"),
+        ]
+
+        loaded_records = {}
+        for file_path in candidate_files:
+            if not os.path.exists(file_path):
+                continue
+
+            try:
+                with open(file_path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+
+                if isinstance(payload, list):
+                    records = payload
+                elif isinstance(payload, dict):
+                    records = payload.get("records") or payload.get("data") or []
+                else:
+                    records = []
+
+                for record in records:
+                    pan = (record.get("pan") or "").upper().strip()
+                    if pan:
+                        loaded_records[pan] = record
+
+                if loaded_records:
+                    logger.info(f"Loaded {len(loaded_records)} bureau records from {file_path}")
+
+            except Exception as exc:
+                logger.warning(f"Failed to read bureau mock file {file_path}: {exc}")
+
+        merged = {**cls._seed_profiles, **loaded_records}
+        cls._mock_data = merged
+        logger.info(f"Mock bureau dataset ready with {len(cls._mock_data)} PAN profiles")
+        return cls._mock_data
     
     @classmethod
     def load_mock_data(cls, data: Dict[str, Any]):
@@ -103,37 +163,26 @@ class BureauEngine:
         }
     
     @classmethod
-    async def fetch_credit_report(cls, pan: str) -> Dict[str, Any]:
+    def fetch_credit_report(cls, pan: str) -> Dict[str, Any]:
         """
-        Fetch credit report for given PAN
-        - Checks Redis cache first
-        - Simulates latency (1-3 seconds)
-        - Returns mock data
+        Fetch credit report for given PAN (mock CIBIL API)
+        - Checks in-memory mock dataset first (seeded records)
+        - Falls back to on-the-fly generation for unknown PANs
+        - Returns structured credit report
         """
-        # Check cache
-        cached = await redis_client.get_cached_bureau_data(pan)
-        if cached:
-            logger.info(f"Bureau data retrieved from cache for PAN ending {pan[-4:]}")
-            try:
-                return json.loads(cached.replace("'", '"'))
-            except:
-                pass  # Cache parse error, fetch fresh
-        
-        # Simulate network latency
-        latency = random.uniform(1.0, 3.0)
-        await asyncio.sleep(latency)
-        
-        # Fetch from mock data or generate
-        if pan in cls._mock_data:
-            report = cls._mock_data[pan]
-            logger.info(f"Bureau data fetched from mock dataset for PAN ending {pan[-4:]}")
+        pan_upper = pan.upper().strip()
+
+        if not cls._mock_data:
+            cls.load_mock_dataset()
+
+        # Fetch from seeded/mock data or generate
+        if pan_upper in cls._mock_data:
+            report = cls._mock_data[pan_upper]
+            logger.info(f"Bureau data fetched from mock dataset for PAN ending {pan_upper[-4:]}")
         else:
-            report = cls._generate_mock_record(pan)
-            logger.info(f"Bureau data generated on-the-fly for PAN ending {pan[-4:]}")
-        
-        # Cache the result
-        await redis_client.cache_bureau_data(pan, report, ttl_seconds=86400)  # 24 hours
-        
+            report = cls._generate_mock_record(pan_upper)
+            logger.info(f"Bureau data generated on-the-fly for PAN ending {pan_upper[-4:]}")
+
         return report
     
     @classmethod

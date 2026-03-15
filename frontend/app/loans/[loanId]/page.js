@@ -89,9 +89,10 @@ export default function LoanDetailsPage() {
 
   if (!loan) return null;
 
-  const paidEMIs = emiSchedule.filter((emi) => emi.status === 'paid').length;
+  const paidEMIs = emiSchedule.filter((emi) => emi.status === 'PAID').length;
   const totalEMIs = emiSchedule.length;
-  const progressPercent = (paidEMIs / totalEMIs) * 100;
+  const progressPercent = totalEMIs > 0 ? (paidEMIs / totalEMIs) * 100 : 0;
+  const nextPendingEMI = emiSchedule.find((emi) => emi.status === 'PENDING');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -133,7 +134,7 @@ export default function LoanDetailsPage() {
             <CardContent className="pt-6">
               <p className="text-sm text-gray-600 mb-1">Loan Amount</p>
               <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(loan.approved_amount)}
+                {formatCurrency(loan.principal)}
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 Disbursed on {formatDate(loan.disbursement_date)}
@@ -156,7 +157,7 @@ export default function LoanDetailsPage() {
                 {formatCurrency(loan.monthly_emi)}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Next due: {formatDate(loan.next_emi_date)}
+                Next due: {formatDate(nextPendingEMI?.due_date || loan.next_due_date)}
               </p>
             </CardContent>
           </Card>
@@ -246,24 +247,24 @@ export default function LoanDetailsPage() {
                     <tr
                       key={index}
                       className={`border-b border-gray-100 ${
-                        emi.status === 'paid' ? 'bg-green-50' : ''
+                        emi.status === 'PAID' ? 'bg-green-50' : ''
                       }`}
                     >
-                      <td className="py-3 px-4 text-sm text-gray-900">{emi.emi_number}</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{emi.month}</td>
                       <td className="py-3 px-4 text-sm text-gray-900">
                         {formatDate(emi.due_date)}
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-900 text-right">
-                        {formatCurrency(emi.principal_amount)}
+                        {formatCurrency(emi.principal_component)}
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-900 text-right">
-                        {formatCurrency(emi.interest_amount)}
+                        {formatCurrency(emi.interest_component)}
                       </td>
                       <td className="py-3 px-4 text-sm font-semibold text-gray-900 text-right">
                         {formatCurrency(emi.emi_amount)}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {emi.status === 'paid' ? (
+                        {emi.status === 'PAID' ? (
                           <Badge variant="success" className="inline-flex items-center gap-1">
                             <CheckCircle className="w-3 h-3" />
                             Paid

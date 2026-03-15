@@ -6,9 +6,10 @@ import ChatMessage from './ChatMessage';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 
-const ChatInterface = ({ messages = [], onSendMessage, isLoading }) => {
+const ChatInterface = ({ messages = [], onSendMessage, isLoading, isConversationComplete = false }) => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
+  const hasMessages = messages.length > 0;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -30,7 +31,7 @@ const ChatInterface = ({ messages = [], onSendMessage, isLoading }) => {
     <div className="flex flex-col h-full">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 ? (
+        {!hasMessages ? (
           <div className="text-center text-gray-500 py-12">
             <p>Start by introducing yourself and telling us about your loan requirement.</p>
           </div>
@@ -58,11 +59,16 @@ const ChatInterface = ({ messages = [], onSendMessage, isLoading }) => {
 
       {/* Input */}
       <div className="border-t border-gray-200 p-4 bg-gray-50">
+        {isConversationComplete && (
+          <p className="mb-3 text-xs text-gray-500">
+            This conversation is saved. You can continue asking follow-up questions here anytime.
+          </p>
+        )}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
+            placeholder={hasMessages ? 'Ask a question or share the next detail...' : 'Start by introducing yourself...'}
             disabled={isLoading}
             className="flex-1"
           />

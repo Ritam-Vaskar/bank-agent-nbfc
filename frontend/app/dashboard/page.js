@@ -93,9 +93,9 @@ export default function Dashboard() {
 
   const stats = {
     activeLoans: activeLoans.length,
-    totalBorrowed: activeLoans.reduce((sum, loan) => sum + (loan.approved_amount || 0), 0),
+    totalBorrowed: activeLoans.reduce((sum, loan) => sum + (loan.principal || 0), 0),
     nextEMI: activeLoans[0]?.next_emi_amount || 0,
-    pendingApplications: applications.filter((app) => app.status === 'in_progress').length,
+    pendingApplications: applications.filter((app) => app.status === 'IN_PROGRESS').length,
   };
 
   if (!isAuthInitialized || !isAuthenticated) return null;
@@ -232,7 +232,7 @@ export default function Dashboard() {
                           <div>
                             <p className="text-gray-600">Amount</p>
                             <p className="font-medium text-gray-900">
-                              {formatCurrency(loan.approved_amount)}
+                              {formatCurrency(loan.principal)}
                             </p>
                           </div>
                           <div>
@@ -270,7 +270,7 @@ export default function Dashboard() {
                 <Card
                   key={app.application_id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => router.push(`/apply/${app.loan_type}`)}
+                  onClick={() => router.push(`/apply/${app.loan_type}?applicationId=${app.application_id}`)}
                 >
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">

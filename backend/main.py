@@ -15,22 +15,26 @@ from database import mongodb, redis_client
 from middleware.audit_logger import audit_middleware
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+APP_LOG_FILE = os.path.join(LOG_DIR, "app.log")
+
 # Ensure logs directory exists
-os.makedirs('logs', exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
 # Configure logging with UTF-8 encoding for Windows compatibility
 logging.basicConfig(
     level=logging.INFO if settings.is_development else logging.WARNING,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/app.log', encoding='utf-8'),
+        logging.FileHandler(APP_LOG_FILE, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 
 # Set console handler encoding to UTF-8 for emoji support on Windows
 for handler in logging.root.handlers:
-    if isinstance(handler, logging.StreamHandler):
+    if isinstance(handler, logging.StreamHandler) and hasattr(handler.stream, 'reconfigure'):
         handler.stream.reconfigure(encoding='utf-8')
 
 logger = logging.getLogger(__name__)
@@ -58,18 +62,29 @@ async def lifespan(app: FastAPI):
     # Connect to Redis
     try:
         await redis_client.connect()
-        if redis_client.is_connected:
-            logger.info("✅ Redis connected successfully")
-        else:
-            logger.warning("⚠️  Redis unavailable, running with in-memory fallback")
+        logger.info("✅ Redis connected successfully")
     except Exception as e:
-        logger.warning(f"⚠️  Redis connection failed, continuing in degraded mode: {e}")
+        logger.error(f"❌ Redis connection failed: {e}")
+        raise
     
     # Load mock bureau data
     try:
+        import json, os
         from engines.bureau_engine import bureau_engine
-        bureau_engine.load_mock_dataset()
-        logger.info("✅ Bureau mock data loaded (using fallback generation)")
+        seed_path = os.path.join(os.path.dirname(__file__), "mock_data", "seeds", "credit_bureau_sample.json")
+        if os.path.exists(seed_path):
+            with open(seed_path, "r") as f:
+                seed_records = json.load(f)
+            # seed file is a list of records; convert to PAN-keyed dict
+            if isinstance(seed_records, list):
+                mock_data = {r["pan"]: r for r in seed_records if "pan" in r}
+            else:
+                mock_data = seed_records
+            bureau_engine.load_mock_data(mock_data)
+            logger.info(f"✅ Bureau mock data loaded: {len(mock_data)} seed records")
+        else:
+            bureau_engine.load_mock_data({})
+            logger.info("✅ Bureau mock data initialized (will generate on-the-fly)")
     except Exception as e:
         logger.warning(f"⚠️  Could not load bureau data: {str(e)} (will generate on-the-fly)")
     
@@ -175,8 +190,27 @@ logger.info("   - /api/admin (Admin & Analytics)")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.is_development
+    "main:app",
+    host="0.0.0.0",
+    port=8000,
+    reload=settings.is_development,
+    reload_dirs=[
+        os.path.join(BASE_DIR, "auth"),
+        os.path.join(BASE_DIR, "engines"),
+        os.path.join(BASE_DIR, "middleware"),
+        os.path.join(BASE_DIR, "models"),
+        os.path.join(BASE_DIR, "routes"),
+        os.path.join(BASE_DIR, "workflows"),
+        BASE_DIR,
+    ],
+    reload_excludes=[
+        "*.log",
+        "logs",
+        "logs/*",
+        "generated/*",
+        "mock_data/generated/*",
+        "sanction_letters/*",
+        "__pycache__/*",
+    ]
     )
+

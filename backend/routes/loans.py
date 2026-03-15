@@ -3,7 +3,7 @@ Loan Application Routes
 Integrates LangGraph workflow with HTTP endpoints
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from typing import List, Dict, Any
 from datetime import datetime
 import logging
@@ -14,16 +14,32 @@ from models.user import User
 from models.loan_application import LoanApplication, ApplicationData, ConversationMessage, ChatMessage
 from models.loan import Loan
 from database import mongodb, redis_client
-from workflows.loan_graph import loan_workflow, LoanWorkflowState
+from workflows.loan_graph import (
+    LoanWorkflowState,
+    generate_follow_up_response,
+    handle_acceptance_node,
+    run_workflow_until_pause,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/loans", tags=["Loans"])
 
+ACCEPTANCE_KEYWORDS = ("accept", "yes", "agree", "confirm")
+REJECTION_KEYWORDS = ("reject", "no", "decline", "cancel")
+AUTOFILL_KEYWORDS = ("auto", "autofill", "demo", "autofill demo")
+
+
+def _normalize_loan_type(loan_type: str) -> str:
+    if loan_type.endswith("_loan"):
+        return loan_type
+    return f"{loan_type}_loan"
+
 
 @router.post("/apply")
 async def start_loan_application(
-    loan_type: str,
+    loan_type: str | None = None,
+    payload: Dict[str, Any] | None = Body(default=None),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -37,6 +53,16 @@ async def start_loan_application(
         Application ID and initial state
     """
     try:
+        if not loan_type and payload:
+            loan_type = payload.get("loan_type")
+
+        if not loan_type:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="loan_type is required"
+            )
+
+        loan_type = _normalize_loan_type(loan_type)
         application_id = str(uuid.uuid4())
         
         # Initialize workflow state
@@ -65,10 +91,7 @@ async def start_loan_application(
         
         # Run first two nodes (init + collect_info greeting)
         # Use recursion_limit to prevent infinite loops
-        result_state = loan_workflow.invoke(
-            initial_state,
-            config={"recursion_limit": 5}
-        )
+        result_state = run_workflow_until_pause(initial_state)
         
         # Save application to database
         application_doc = {
@@ -92,6 +115,7 @@ async def start_loan_application(
         return {
             "application_id": application_id,
             "loan_type": loan_type,
+            "status": "IN_PROGRESS",
             "stage": result_state["stage"],
             "messages": result_state["messages"]
         }
@@ -137,15 +161,6 @@ async def chat_with_workflow(
                 detail="Application not found"
             )
         
-        # Check if workflow is already completed
-        if app_doc["workflow_stage"] in ["completed", "rejected"]:
-            return {
-                "application_id": application_id,
-                "stage": app_doc["workflow_stage"],
-                "messages": app_doc["conversation_messages"],
-                "completed": True
-            }
-        
         # Reconstruct workflow state
         state: LoanWorkflowState = {
             "application_id": application_id,
@@ -177,21 +192,34 @@ async def chat_with_workflow(
             "timestamp": datetime.now().isoformat()
         })
         
-        # Parse message for special commands (acceptance, data extraction, etc.)
         message_lower = message.lower()
-        
-        # Check for acceptance/rejection
-        if state["stage"] == "await_acceptance":
-            if any(word in message_lower for word in ["accept", "yes", "proceed", "agree"]):
-                state["is_accepted"] = True
-            elif any(word in message_lower for word in ["reject", "no", "decline", "cancel"]):
-                state["is_accepted"] = False
+        is_acceptance_message = any(word in message_lower for word in ACCEPTANCE_KEYWORDS)
+        is_rejection_message = any(word in message_lower for word in REJECTION_KEYWORDS)
         
         # Parse application data if in collection stage
         if state["stage"] == "collect_info":
             # Extract data from message (simple keyword matching)
             # In production, use better NLP or structured forms
             app_data = state["application_data"]
+
+            if any(word == message_lower.strip() for word in AUTOFILL_KEYWORDS):
+                app_data.setdefault("aadhaar", "123456789012")
+                app_data.setdefault("pan", "ABCDE1234F")
+                app_data.setdefault("monthly_income", 75000.0)
+                app_data.setdefault("requested_amount", 300000.0)
+                app_data.setdefault("tenure_months", 24)
+                app_data.setdefault("age", 30)
+                app_data.setdefault("employment_type", "salaried")
+                app_data.setdefault("employment_years", 5)
+                app_data.setdefault("city_tier", 1)
+                state["messages"].append({
+                    "role": "assistant",
+                    "content": (
+                        "Auto-filled sample KYC and financial details for demo flow. "
+                        "Proceeding with mock UIDAI and bureau checks now."
+                    ),
+                    "timestamp": datetime.now().isoformat()
+                })
             
             # Extract Aadhaar
             import re
@@ -200,9 +228,9 @@ async def chat_with_workflow(
                 app_data["aadhaar"] = aadhaar_match.group()
             
             # Extract PAN
-            pan_match = re.search(r'\b[A-Z]{5}[0-9]{4}[A-Z]\b', message)
+            pan_match = re.search(r'\b[A-Za-z]{5}[0-9]{4}[A-Za-z]\b', message)
             if pan_match:
-                app_data["pan"] = pan_match.group()
+                app_data["pan"] = pan_match.group().upper()
             
             # Extract income (look for numbers with "income" or "salary")
             if any(word in message_lower for word in ["income", "salary", "earn"]):
@@ -215,9 +243,18 @@ async def chat_with_workflow(
                 amount_match = re.search(r'\b(\d{5,8})\b', message)
                 if amount_match:
                     app_data["requested_amount"] = float(amount_match.group())
+
+            # Extract amount in lakh notation (e.g., 1 lakh, 2.5 lakh, 1lakh)
+            lakh_match = re.search(r'\b(\d+(?:\.\d+)?)\s*lakh\b', message_lower)
+            if lakh_match and not app_data.get("requested_amount"):
+                app_data["requested_amount"] = float(lakh_match.group(1)) * 100000
             
             # Extract tenure
-            if any(word in message_lower for word in ["month", "tenure", "period", "year"]):
+            tenure_context = (
+                any(word in message_lower for word in ["month", "months", "moth", "moths", "tenure", "period", "mth", "mo"]) or
+                ("year" in message_lower and any(word in message_lower for word in ["loan", "repay", "duration", "term"]))
+            )
+            if tenure_context:
                 tenure_match = re.search(r'\b(\d{1,3})\b', message)
                 if tenure_match:
                     tenure = int(tenure_match.group())
@@ -231,6 +268,30 @@ async def chat_with_workflow(
                 age_match = re.search(r'\b(\d{2})\b', message)
                 if age_match:
                     app_data["age"] = int(age_match.group())
+
+            # Fallback for standalone numeric messages (common chat pattern)
+            numeric_match = re.fullmatch(r'\s*(\d+(?:\.\d+)?)\s*', message)
+            if numeric_match:
+                numeric_value = float(numeric_match.group(1))
+
+                if not app_data.get("monthly_income") and 5000 <= numeric_value <= 1000000:
+                    app_data["monthly_income"] = numeric_value
+                elif (
+                    not app_data.get("age")
+                    and 18 <= numeric_value <= 80
+                    and (
+                        app_data.get("employment_years")
+                        or app_data.get("employment_type")
+                        or app_data.get("tenure_months")
+                    )
+                ):
+                    app_data["age"] = int(numeric_value)
+                elif not app_data.get("tenure_months") and 6 <= numeric_value <= 360:
+                    app_data["tenure_months"] = int(numeric_value)
+                elif not app_data.get("age") and 18 <= numeric_value <= 80:
+                    app_data["age"] = int(numeric_value)
+                elif not app_data.get("requested_amount") and 10000 <= numeric_value <= 50000000:
+                    app_data["requested_amount"] = numeric_value
             
             # Extract employment type
             if "salaried" in message_lower or "employee" in message_lower:
@@ -243,32 +304,75 @@ async def chat_with_workflow(
                 exp_match = re.search(r'\b(\d{1,2})\b', message)
                 if exp_match:
                     app_data["employment_years"] = int(exp_match.group())
+
+            # Extract employment years from compact formats (e.g., 10yrs, 7 yr, 5years)
+            exp_compact_match = re.search(r'\b(\d{1,2})\s*(?:yrs?|years?)\b', message_lower)
+            if exp_compact_match:
+                app_data["employment_years"] = int(exp_compact_match.group(1))
             
             # Extract city tier
             if "tier" in message_lower:
-                tier_match = re.search(r'\b([123])\b', message)
+                tier_match = re.search(r'tier\s*[- ]?\s*([123])\b', message_lower)
+                if not tier_match:
+                    tier_match = re.search(r'\b([123])\b', message)
                 if tier_match:
-                    app_data["city_tier"] = int(tier_match.group())
+                    app_data["city_tier"] = int(tier_match.group(1))
             elif any(city in message_lower for city in ["mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad"]):
                 app_data["city_tier"] = 1
             elif any(city in message_lower for city in ["pune", "jaipur", "lucknow", "chandigarh", "kochi"]):
                 app_data["city_tier"] = 2
-            else:
-                if not app_data.get("city_tier"):
-                    app_data["city_tier"] = 3  # Default
-            
-            # Default employment years if not provided
-            if not app_data.get("employment_years"):
-                app_data["employment_years"] = 2  # Default assumption
+
+            # Fallback parse for mixed messages (e.g., "tier2 city, 40 moths, 100000")
+            all_numbers = [int(value) for value in re.findall(r'\b\d{1,8}\b', message)]
+            is_composite_input = (
+                len(all_numbers) >= 2
+                or "," in message
+                or any(token in message_lower for token in ["tier", "month", "months", "moth", "moths", "tenure"])
+            )
+            if all_numbers and is_composite_input:
+                if not app_data.get("city_tier") and any("tier" in token for token in message_lower.split()):
+                    tier_candidates = [n for n in all_numbers if n in (1, 2, 3)]
+                    if tier_candidates:
+                        app_data["city_tier"] = tier_candidates[0]
+
+                if not app_data.get("tenure_months") and any(word in message_lower for word in ["month", "months", "moth", "moths", "tenure", "period"]):
+                    tenure_candidates = [n for n in all_numbers if 6 <= n <= 360]
+                    if tenure_candidates:
+                        app_data["tenure_months"] = tenure_candidates[0]
+
+                if not app_data.get("requested_amount"):
+                    amount_candidates = [n for n in all_numbers if 10000 <= n <= 50000000]
+                    if amount_candidates:
+                        app_data["requested_amount"] = float(max(amount_candidates))
             
             state["application_data"] = app_data
         
-        # Run workflow with updated state
-        # Use recursion_limit to prevent infinite loops
-        result_state = loan_workflow.invoke(
-            state,
-            config={"recursion_limit": 10}
-        )
+        if state["stage"] in ["completed", "rejected"]:
+            follow_up_reply = generate_follow_up_response(state, message)
+            state["messages"].append({
+                "role": "assistant",
+                "content": follow_up_reply,
+                "timestamp": datetime.now().isoformat()
+            })
+            result_state = state
+        elif state["stage"] == "await_acceptance":
+            if is_acceptance_message and not is_rejection_message:
+                state["is_accepted"] = True
+                state = handle_acceptance_node(state)
+                result_state = run_workflow_until_pause(state)
+            elif is_rejection_message:
+                state["is_accepted"] = False
+                result_state = handle_acceptance_node(state)
+            else:
+                follow_up_reply = generate_follow_up_response(state, message)
+                state["messages"].append({
+                    "role": "assistant",
+                    "content": follow_up_reply,
+                    "timestamp": datetime.now().isoformat()
+                })
+                result_state = state
+        else:
+            result_state = run_workflow_until_pause(state)
         
         # Update database
         update_doc = {
@@ -336,6 +440,7 @@ async def chat_with_workflow(
         return {
             "application_id": application_id,
             "stage": result_state["stage"],
+            "status": update_doc["status"],
             "messages": result_state["messages"],
             "loan_offer": result_state.get("loan_offer"),
             "emi_schedule": result_state.get("emi_schedule"),
@@ -601,7 +706,8 @@ async def download_sanction_letter(
         
         # Get sanction letter from application
         app_doc = await mongodb.loan_applications.find_one({
-            "loan_id": loan_id
+            "loan_id": loan_id,
+            "user_id": current_user.user_id
         })
         
         if not app_doc or not app_doc.get("sanction_letter_path"):

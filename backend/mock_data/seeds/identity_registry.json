@@ -1,0 +1,202 @@
+[
+  {
+    "user_id": "USR001",
+    "full_name": "Aryan Rao",
+    "aadhaar": "123456789012",
+    "pan": "MIODB4596G",
+    "dob": "1994-04-18",
+    "mobile": "9876500001",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR002",
+    "full_name": "Ananya Sharma",
+    "aadhaar": "234567890123",
+    "pan": "AAAAA9999A",
+    "dob": "1993-01-11",
+    "mobile": "9876500002",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR003",
+    "full_name": "Demo Customer",
+    "aadhaar": "345678901234",
+    "pan": "ABCDE1234F",
+    "dob": "1990-08-02",
+    "mobile": "9876500003",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR004",
+    "full_name": "Aryan Patil",
+    "aadhaar": "456789012345",
+    "pan": "YTOVQ6613S",
+    "dob": "1992-10-25",
+    "mobile": "9876500004",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR005",
+    "full_name": "Deepa Singh",
+    "aadhaar": "567890123456",
+    "pan": "WONSD6222E",
+    "dob": "1989-07-19",
+    "mobile": "9876500005",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR006",
+    "full_name": "Riya Shetty",
+    "aadhaar": "678901234567",
+    "pan": "ISQNK9449P",
+    "dob": "1995-02-21",
+    "mobile": "9876500006",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR007",
+    "full_name": "Aadhya Sharma",
+    "aadhaar": "789012345678",
+    "pan": "IIQZD3729N",
+    "dob": "1996-05-09",
+    "mobile": "9876500007",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR008",
+    "full_name": "Aditya Agarwal",
+    "aadhaar": "890123456789",
+    "pan": "JHPJZ0122V",
+    "dob": "1991-11-16",
+    "mobile": "9876500008",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR009",
+    "full_name": "Aditya Patel",
+    "aadhaar": "901234567890",
+    "pan": "BITCZ7685Z",
+    "dob": "1988-09-27",
+    "mobile": "9876500009",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR010",
+    "full_name": "Kavya Agarwal",
+    "aadhaar": "112233445566",
+    "pan": "MWDCF5021Z",
+    "dob": "1997-03-30",
+    "mobile": "9876500010",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR011",
+    "full_name": "Ravi Kapoor",
+    "aadhaar": "223344556677",
+    "pan": "PBOJG6178R",
+    "dob": "1987-06-14",
+    "mobile": "9876500011",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR012",
+    "full_name": "Aarav Kumar",
+    "aadhaar": "334455667788",
+    "pan": "KUFIR6834S",
+    "dob": "1994-12-03",
+    "mobile": "9876500012",
+    "city_tier": 3,
+    "status": "active"
+  },
+  {
+    "user_id": "USR013",
+    "full_name": "Saanvi Agarwal",
+    "aadhaar": "445566778899",
+    "pan": "QMFEC0052H",
+    "dob": "1998-04-06",
+    "mobile": "9876500013",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR014",
+    "full_name": "Divya Shetty",
+    "aadhaar": "556677889900",
+    "pan": "KMYYE1311S",
+    "dob": "1993-09-12",
+    "mobile": "9876500014",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR015",
+    "full_name": "Aryan Bhat",
+    "aadhaar": "667788990011",
+    "pan": "BTKSY4812S",
+    "dob": "1991-01-26",
+    "mobile": "9876500015",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR016",
+    "full_name": "Aadhya Malhotra",
+    "aadhaar": "778899001122",
+    "pan": "QRALV2419X",
+    "dob": "1996-08-20",
+    "mobile": "9876500016",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR017",
+    "full_name": "Anvi Kumar",
+    "aadhaar": "889900112233",
+    "pan": "LCDKS0859N",
+    "dob": "1999-02-28",
+    "mobile": "9876500017",
+    "city_tier": 3,
+    "status": "active"
+  },
+  {
+    "user_id": "USR018",
+    "full_name": "Swati Iyer",
+    "aadhaar": "990011223344",
+    "pan": "XTXEJ3990G",
+    "dob": "1990-10-10",
+    "mobile": "9876500018",
+    "city_tier": 1,
+    "status": "active"
+  },
+  {
+    "user_id": "USR019",
+    "full_name": "Deepa Kapoor",
+    "aadhaar": "101112131415",
+    "pan": "IKPNN9030O",
+    "dob": "1989-03-05",
+    "mobile": "9876500019",
+    "city_tier": 2,
+    "status": "active"
+  },
+  {
+    "user_id": "USR020",
+    "full_name": "Pradeep Sharma",
+    "aadhaar": "212223242526",
+    "pan": "QKAMB1094Z",
+    "dob": "1986-07-07",
+    "mobile": "9876500020",
+    "city_tier": 3,
+    "status": "active"
+  }
+]

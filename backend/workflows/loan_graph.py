@@ -235,11 +235,12 @@ def verify_kyc_node(state: LoanWorkflowState) -> LoanWorkflowState:
             pan_masked = ((result.get("pan") or {}).get("masked") or "XX***XXX")
             aadhaar_token = (result.get("encrypted_aadhaar") or "")[-8:] or "encrypted"
             pan_token = (result.get("encrypted_pan") or "")[-8:] or "encrypted"
+            applicant_name = result.get("applicant_name") or "Verified Applicant"
             _add_assistant_message(
                 state,
                 (
                     "KYC verification completed through mock UIDAI/PAN APIs.\n"
-                    "• Applicant: Verified Applicant\n"
+                    f"• Applicant: {applicant_name}\n"
                     f"• Aadhaar: {aadhaar_masked}\n"
                     f"• PAN: {pan_masked}\n"
                     f"• Encrypted Aadhaar Token: ****{aadhaar_token}\n"
@@ -809,14 +810,15 @@ def should_continue_after_info(state: LoanWorkflowState) -> str:
     # Check if we have all required fields
     app_data = state.get("application_data", {})
     required_fields = REQUIRED_APPLICATION_FIELDS
-    
-    if all(field in app_data for field in required_fields):
-        logger.info(f"All required fields collected, proceeding to KYC verification")
-        return "verify_kyc"
-    
+
+    missing_fields = [f for f in required_fields if f not in app_data]
+    if not missing_fields:
+        logger.info("All required fields collected, awaiting explicit customer confirmation for KYC")
+        return END
+
     # Otherwise, stop and wait for more user input
     # Don't loop back to collect_info - that will trigger LLM again
-    logger.info(f"Missing fields: {[f for f in required_fields if f not in app_data]}, waiting for user input")
+    logger.info(f"Missing fields: {missing_fields}, waiting for user input")
     return END
 
 

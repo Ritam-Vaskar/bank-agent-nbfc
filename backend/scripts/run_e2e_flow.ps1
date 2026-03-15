@@ -28,23 +28,45 @@ try {
     $appId = $applyResp.application_id
     if (-not $appId) { throw "No application_id" }
 
-    $msg1 = "My Aadhaar is 123456789012 and PAN is ABCDE1234F. My monthly income is 75000. I need loan amount 300000 for 24 months. Age 30, salaried, 5 years experience, Mumbai."
+    $msg1 = "My Aadhaar is 123456789012 and PAN is MIODB4596G. My monthly income is 75000. I need loan amount 300000 for 24 months. Age 30, salaried, 5 years experience, Mumbai."
     $chat1Body = @{ message = $msg1 } | ConvertTo-Json
     $chat1Resp = Invoke-RestMethod -Uri "http://localhost:8000/api/loans/applications/$appId/chat" -Method Post -Headers $authHeaders -Body $chat1Body
 
-    $chat2Body = @{ message = "Yes, I accept the offer" } | ConvertTo-Json
-    $chat2Resp = Invoke-RestMethod -Uri "http://localhost:8000/api/loans/applications/$appId/chat" -Method Post -Headers $authHeaders -Body $chat2Body
-    $loanId = $chat2Resp.loan_id
-    if (-not $loanId) { throw "No loan_id" }
+    $resp = $chat1Resp
+    if ($resp.stage -eq "verify_kyc") {
+        $resp = Invoke-RestMethod -Uri "http://localhost:8000/api/loans/applications/$appId/chat" -Method Post -Headers $authHeaders -Body (@{ message = "yes" } | ConvertTo-Json)
+    }
 
-    $outPdf = "c:/Users/KIIT0001/Downloads/bank-agent/backend/sanction_letters/e2e_$loanId.pdf"
-    Invoke-WebRequest -Uri "http://localhost:8000/api/loans/$loanId/sanction-letter" -Headers $authHeaders -OutFile $outPdf -UseBasicParsing | Out-Null
+    $maxSteps = 20
+    $steps = 0
+    while ($resp.stage -notin @("completed", "rejected", "await_acceptance") -and $steps -lt $maxSteps) {
+        $resp = Invoke-RestMethod -Uri "http://localhost:8000/api/loans/applications/$appId/chat" -Method Post -Headers $authHeaders -Body (@{ message = "ok" } | ConvertTo-Json)
+        $steps++
+    }
+
+    if ($resp.stage -eq "await_acceptance") {
+        $resp = Invoke-RestMethod -Uri "http://localhost:8000/api/loans/applications/$appId/chat" -Method Post -Headers $authHeaders -Body (@{ message = "accept" } | ConvertTo-Json)
+        $steps = 0
+        while ($resp.stage -notin @("completed", "rejected") -and $steps -lt $maxSteps) {
+            $resp = Invoke-RestMethod -Uri "http://localhost:8000/api/loans/applications/$appId/chat" -Method Post -Headers $authHeaders -Body (@{ message = "ok" } | ConvertTo-Json)
+            $steps++
+        }
+    }
+
+    $chat2Resp = $resp
+    $loanId = $chat2Resp.loan_id
+    $outPdf = $null
+    if ($loanId) {
+        $outPdf = "c:/Users/KIIT0001/Downloads/bank-agent/backend/sanction_letters/e2e_$loanId.pdf"
+        Invoke-WebRequest -Uri "http://localhost:8000/api/loans/$loanId/sanction-letter" -Headers $authHeaders -OutFile $outPdf -UseBasicParsing | Out-Null
+    }
 
     [ordered]@{
         otp = $otp
         application_id = $appId
         stage_after_details = $chat1Resp.stage
         stage_after_accept = $chat2Resp.stage
+        status_after_accept = $chat2Resp.status
         loan_id = $loanId
         sanction_pdf = $outPdf
         final_reply = $chat2Resp.messages[-1].content

@@ -29,7 +29,7 @@ router = APIRouter(prefix="/loans", tags=["Loans"])
 ACCEPTANCE_KEYWORDS = ("accept", "yes", "agree", "confirm")
 REJECTION_KEYWORDS = ("reject", "no", "decline", "cancel")
 AUTOFILL_KEYWORDS = ("auto", "autofill", "demo", "autofill demo")
-CONTINUE_KEYWORDS = ("ok", "okay", "continue", "next", "start", "initiate", "do")
+CONTINUE_KEYWORDS = ("ok", "okay", "continue", "next", "start", "initiate")
 STEP_CONFIRMATION_STAGES = {
     "verify_kyc",
     "fetch_credit",
@@ -40,6 +40,24 @@ STEP_CONFIRMATION_STAGES = {
     "generate_sanction",
     "simulate_disbursement",
 }
+
+
+def _has_intent(message: str, keywords: tuple[str, ...]) -> bool:
+    import re
+
+    normalized = re.sub(r"\s+", " ", message.lower()).strip()
+    if not normalized:
+        return False
+
+    if normalized in keywords:
+        return True
+
+    for keyword in keywords:
+        escaped = re.escape(keyword)
+        if re.search(rf"\b{escaped}\b", normalized):
+            return True
+
+    return False
 
 
 def _build_pipeline_progress(state: LoanWorkflowState, status_value: str | None = None) -> Dict[str, Any]:
@@ -224,9 +242,9 @@ async def chat_with_workflow(
         })
         
         message_lower = message.lower()
-        is_acceptance_message = any(word in message_lower for word in ACCEPTANCE_KEYWORDS)
-        is_rejection_message = any(word in message_lower for word in REJECTION_KEYWORDS)
-        is_continue_message = any(word in message_lower for word in CONTINUE_KEYWORDS)
+        is_acceptance_message = _has_intent(message, ACCEPTANCE_KEYWORDS)
+        is_rejection_message = _has_intent(message, REJECTION_KEYWORDS)
+        is_continue_message = _has_intent(message, CONTINUE_KEYWORDS)
         
         # Parse application data if in collection stage
         if state["stage"] == "collect_info":

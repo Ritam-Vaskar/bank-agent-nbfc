@@ -349,16 +349,30 @@ async def chat_with_workflow(
             elif "self" in message_lower or "business" in message_lower:
                 app_data["employment_type"] = "self_employed"
             
+            employment_context = any(word in message_lower for word in ["experience", "working", "employed", "job"])
+
             # Extract employment years
-            if any(word in message_lower for word in ["experience", "working", "employed"]):
+            if employment_context:
                 exp_match = re.search(r'\b(\d{1,2})\b', message)
                 if exp_match:
                     app_data["employment_years"] = int(exp_match.group())
 
-            # Extract employment years from compact formats (e.g., 10yrs, 7 yr, 5years)
-            exp_compact_match = re.search(r'\b(\d{1,2})\s*(?:yrs?|years?)\b', message_lower)
-            if exp_compact_match:
-                app_data["employment_years"] = int(exp_compact_match.group(1))
+            # Extract tenure from compact year formats (e.g., 5yrs, 7 yr, 10years)
+            tenure_year_match = re.search(r'\b(\d{1,2})\s*(?:yrs?|years?)\b', message_lower)
+            if tenure_year_match:
+                years_value = int(tenure_year_match.group(1))
+                is_tenure_year_message = (
+                    any(word in message_lower for word in ["loan", "repay", "tenure", "duration", "term"]) or
+                    (app_data.get("requested_amount") is not None and not employment_context)
+                )
+                if is_tenure_year_message and not app_data.get("tenure_months"):
+                    app_data["tenure_months"] = years_value * 12
+                elif app_data.get("tenure_months") and not app_data.get("employment_years"):
+                    app_data["employment_years"] = years_value
+                elif employment_context or (
+                    app_data.get("requested_amount") in (None, "") and not app_data.get("employment_years")
+                ):
+                    app_data["employment_years"] = years_value
             
             # Extract city tier
             if "tier" in message_lower:
@@ -367,9 +381,13 @@ async def chat_with_workflow(
                     tier_match = re.search(r'\b([123])\b', message)
                 if tier_match:
                     app_data["city_tier"] = int(tier_match.group(1))
-            elif any(city in message_lower for city in ["mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad"]):
+            else:
+                short_tier_match = re.search(r'\bt\s*[- ]?\s*([123])\b', message_lower)
+                if short_tier_match:
+                    app_data["city_tier"] = int(short_tier_match.group(1))
+            if not app_data.get("city_tier") and any(city in message_lower for city in ["mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad"]):
                 app_data["city_tier"] = 1
-            elif any(city in message_lower for city in ["pune", "jaipur", "lucknow", "chandigarh", "kochi"]):
+            elif not app_data.get("city_tier") and any(city in message_lower for city in ["pune", "jaipur", "lucknow", "chandigarh", "kochi"]):
                 app_data["city_tier"] = 2
 
             # Fallback parse for mixed messages (e.g., "tier2 city, 40 moths, 100000")

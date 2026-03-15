@@ -151,6 +151,16 @@ class KYCEngine:
         last_3 = pan_clean[-3:]
         return f"{first_2}***{last_3}"
     
+    @staticmethod
+    def mask_mobile(mobile: str) -> str:
+        """Mask mobile: 98******01"""
+        mobile_clean = re.sub(r'\D', '', mobile or "")
+        if len(mobile_clean) < 4:
+            return "**"
+        if len(mobile_clean) < 8:
+            return f"{mobile_clean[:2]}***{mobile_clean[-2:]}"
+        return f"{mobile_clean[:2]}******{mobile_clean[-2:]}"
+    
     def verify_aadhaar(self, aadhaar: str) -> Tuple[bool, dict]:
         """
         Simulate Aadhaar verification
@@ -285,6 +295,8 @@ class KYCEngine:
             result["kyc_status"] = "VERIFIED"
             result["verification_id"] = f"KYC-{pan_clean[-4:]}-{aadhaar_clean[-4:]}"
             result["applicant_name"] = aadhaar_record.get("full_name")
+            result["applicant_dob"] = aadhaar_record.get("dob")
+            result["applicant_mobile_masked"] = self.mask_mobile(str(aadhaar_record.get("mobile", "")))
             result["registry_user_id"] = aadhaar_record.get("user_id")
             
             logger.info(f"KYC verification successful: {result['verification_id']}")

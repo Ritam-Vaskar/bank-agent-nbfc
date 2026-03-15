@@ -57,6 +57,22 @@ def _build_offer_prompt_context(offer: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _next_field_prompt(field: str, loan_type: str) -> str:
+    loan_label = loan_type.replace("_", " ")
+    prompts = {
+        "aadhaar": "Please share your 12-digit Aadhaar number.",
+        "pan": "Please share your PAN number in format AAAAA9999A.",
+        "monthly_income": "Please share your monthly income in INR.",
+        "requested_amount": f"How much {loan_label} amount would you like to borrow?",
+        "tenure_months": "What tenure do you prefer? Share months or years (for example: 60 months or 5 years).",
+        "age": "Please share your age.",
+        "employment_type": "Are you salaried or self-employed?",
+        "employment_years": "How many years have you been employed?",
+        "city_tier": "Which city tier do you belong to? Reply with Tier 1, Tier 2, or Tier 3.",
+    }
+    return prompts.get(field, "Please share the next required detail.")
+
+
 def _add_assistant_message(state: "LoanWorkflowState", content: str) -> None:
     state["messages"].append({
         "role": "assistant",
@@ -160,10 +176,8 @@ def init_application(state: LoanWorkflowState) -> LoanWorkflowState:
 
 def collect_information(state: LoanWorkflowState) -> LoanWorkflowState:
     """
-    LLM node: Collect application information from user
-    Uses conversational interface to gather all required data
+    Deterministic node: collect application information one field at a time.
     """
-    application_context = _safe_application_context(state.get("application_data", {}))
     missing_fields = _missing_application_fields(state.get("application_data", {}))
 
     if not missing_fields:
@@ -172,41 +186,14 @@ def collect_information(state: LoanWorkflowState) -> LoanWorkflowState:
             "All required details received. Reply 'yes' to start KYC verification.",
         )
         state["updated_at"] = datetime.now().isoformat()
-        logger.info(f"Collection complete for {state['application_id']}; moving to verification")
+        logger.info(f"Collection complete for {state['application_id']}; awaiting confirmation")
         return state
 
-    system_prompt = PROMPTS["collect_info"].format(loan_type=state["loan_type"]) + (
-        "\n\nCONVERSATION RULES:\n"
-        "- The customer has already been greeted. Do not greet them again.\n"
-        "- Continue from the current conversation only.\n"
-        f"- Already collected fields: {', '.join(sorted(application_context.keys())) or 'none'}.\n"
-        f"- Missing required fields: {', '.join(missing_fields) or 'none'}.\n"
-        "- Ask only for the next most important missing detail.\n"
-        "- If all required fields are available, confirm that verification is starting."
-    )
-    
-    # Build message history
-    messages = [SystemMessage(content=system_prompt)]
-    for msg in state["messages"]:
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
-    
-    # Get LLM response
-    response = llm.invoke(messages)
-    
-    # Add to conversation
-    state["messages"].append({
-        "role": "assistant",
-        "content": response.content
-    })
+    next_field = missing_fields[0]
+    _add_assistant_message(state, _next_field_prompt(next_field, state["loan_type"]))
     
     state["updated_at"] = datetime.now().isoformat()
-    
-    # Check if ready to proceed (this would be determined by parsing user responses)
-    # For now, assume collection is done when application_data is populated
-    
+
     logger.info(f"Information collection step for {state['application_id']}")
     return state
 
@@ -236,16 +223,20 @@ def verify_kyc_node(state: LoanWorkflowState) -> LoanWorkflowState:
             aadhaar_token = (result.get("encrypted_aadhaar") or "")[-8:] or "encrypted"
             pan_token = (result.get("encrypted_pan") or "")[-8:] or "encrypted"
             applicant_name = result.get("applicant_name") or "Verified Applicant"
+            applicant_dob = result.get("applicant_dob") or "N/A"
+            applicant_mobile = result.get("applicant_mobile_masked") or "N/A"
             _add_assistant_message(
                 state,
                 (
                     "KYC verification completed through mock UIDAI/PAN APIs.\n"
                     f"• Applicant: {applicant_name}\n"
+                    f"• DOB: {applicant_dob}\n"
+                    f"• Mobile: {applicant_mobile}\n"
                     f"• Aadhaar: {aadhaar_masked}\n"
                     f"• PAN: {pan_masked}\n"
                     f"• Encrypted Aadhaar Token: ****{aadhaar_token}\n"
                     f"• Encrypted PAN Token: ****{pan_token}\n"
-                    "Reply 'ok' to continue to Credit Bureau Check."
+                    "If these identity details are correct, reply 'ok' to continue to Credit Bureau Check."
                 ),
             )
         else:

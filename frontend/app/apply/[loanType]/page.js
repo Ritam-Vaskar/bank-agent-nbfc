@@ -83,6 +83,73 @@ function resolveStepIndex(stage) {
   return idx === -1 ? 0 : idx;
 }
 
+function getProgressStepState(workflowStage, isRejected, progress) {
+  if (!progress) {
+    const stageIndex = resolveStepIndex(workflowStage);
+    const doneByStage = AGENT_STEPS.map((_, index) => index < stageIndex);
+
+    if (workflowStage === 'await_acceptance') {
+      doneByStage[6] = true;
+    }
+
+    if (workflowStage === 'completed' && !isRejected) {
+      for (let index = 0; index < doneByStage.length; index++) {
+        doneByStage[index] = true;
+      }
+    }
+
+    return {
+      doneByProgress: doneByStage,
+      currentIndex: isRejected ? stageIndex : Math.min(stageIndex, AGENT_STEPS.length - 1),
+      rejectedIndex: isRejected ? stageIndex : -1,
+    };
+  }
+
+  const doneByProgress = [
+    false,
+    !!progress?.kyc_done,
+    !!progress?.credit_done,
+    !!progress?.policy_done,
+    !!progress?.affordability_done,
+    !!progress?.risk_done,
+    !!progress?.offer_done,
+    !!progress?.sanction_done,
+  ];
+
+  const allDone = doneByProgress.every((value) => value === true);
+  const firstPending = doneByProgress.findIndex((value) => !value);
+
+  let currentIndex = 0;
+  if (workflowStage === 'await_acceptance') {
+    currentIndex = 6;
+  } else if (workflowStage === 'generate_sanction' || workflowStage === 'simulate_disbursement') {
+    currentIndex = 7;
+  } else if (workflowStage === 'completed' && allDone) {
+    currentIndex = 7;
+  } else if (firstPending !== -1) {
+    currentIndex = firstPending;
+  } else {
+    currentIndex = resolveStepIndex(workflowStage);
+  }
+
+  let rejectedIndex = -1;
+  if (isRejected) {
+    if (!progress?.kyc_done) rejectedIndex = 1;
+    else if (!progress?.credit_done) rejectedIndex = 2;
+    else if (!progress?.policy_done) rejectedIndex = 3;
+    else if (!progress?.affordability_done) rejectedIndex = 4;
+    else if (!progress?.risk_done) rejectedIndex = 5;
+    else if (!progress?.offer_done) rejectedIndex = 6;
+    else rejectedIndex = 7;
+  }
+
+  return {
+    doneByProgress,
+    currentIndex,
+    rejectedIndex,
+  };
+}
+
 export default function ApplyPage() {
   const router = useRouter();
   const params = useParams();
@@ -97,6 +164,7 @@ export default function ApplyPage() {
     messages,
     workflowStage,
     applicationStatus,
+    pipelineProgress,
     loanOffer,
     loanId,
     isCompleted,
@@ -152,6 +220,7 @@ export default function ApplyPage() {
         })),
         stage: response.data.stage,
         status: response.data.status,
+        progress: response.data.progress,
         loanOffer: null,
         loanId: null,
         isCompleted: false,
@@ -178,6 +247,7 @@ export default function ApplyPage() {
         })),
         stage: application.workflow_stage,
         status: application.status,
+        progress: application.progress || null,
         loanOffer: application.loan_offer || null,
         loanId: application.loan_id || null,
         isCompleted: ['completed', 'rejected'].includes(application.workflow_stage),
@@ -197,7 +267,7 @@ export default function ApplyPage() {
     setLoading(true);
     try {
       const response = await loansAPI.sendMessage(currentApplicationId, message);
-      const { messages: backendMessages, stage, status, loan_offer, loan_id, completed } = response.data;
+      const { messages: backendMessages, stage, status, progress, loan_offer, loan_id, completed } = response.data;
       setApplicationSnapshot({
         applicationId: currentApplicationId,
         loanType,
@@ -207,6 +277,7 @@ export default function ApplyPage() {
         })),
         stage,
         status,
+        progress,
         loanOffer: loan_offer || loanOffer,
         loanId: loan_id || loanId,
         isCompleted: completed,
@@ -241,7 +312,11 @@ export default function ApplyPage() {
   const isRejected = applicationStatus === 'DECLINED' || workflowStage === 'rejected';
   const isProcessComplete = isCompleted || workflowStage === 'completed' || isRejected;
   const showOfferActions = loanOffer && workflowStage === 'await_acceptance' && !isLoading;
-  const currentStepIndex = resolveStepIndex(workflowStage);
+  const {
+    doneByProgress,
+    currentIndex: currentStepIndex,
+    rejectedIndex,
+  } = getProgressStepState(workflowStage, isRejected, pipelineProgress);
 
   // Derive nice loan type label
   const loanLabel = loanType
@@ -306,12 +381,9 @@ export default function ApplyPage() {
                 <div className="space-y-1">
                   {AGENT_STEPS.map((step, index) => {
                     const StepIcon = step.icon;
-                    const isDone = isProcessComplete
-                      ? !isRejected
-                      : index < currentStepIndex;
-                    const isCurrent =
-                      !isProcessComplete && index === currentStepIndex;
-                    const isRejectedStep = isRejected && index === currentStepIndex;
+                    const isDone = doneByProgress[index];
+                    const isCurrent = !isProcessComplete && index === currentStepIndex;
+                    const isRejectedStep = isRejected && index === rejectedIndex;
 
                     return (
                       <div key={step.id} className="flex items-start gap-3 py-2">

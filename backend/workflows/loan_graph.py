@@ -169,7 +169,7 @@ def collect_information(state: LoanWorkflowState) -> LoanWorkflowState:
     if not missing_fields:
         _add_assistant_message(
             state,
-            "All required details received. Starting KYC and credit assessment now.",
+            "All required details received. Reply 'yes' to start KYC verification.",
         )
         state["updated_at"] = datetime.now().isoformat()
         logger.info(f"Collection complete for {state['application_id']}; moving to verification")
@@ -231,11 +231,20 @@ def verify_kyc_node(state: LoanWorkflowState) -> LoanWorkflowState:
 
         if result.get("kyc_status") == "VERIFIED":
             state["stage"] = "fetch_credit"
+            aadhaar_masked = ((result.get("aadhaar") or {}).get("masked") or "XXXX-XXXX-XXXX")
+            pan_masked = ((result.get("pan") or {}).get("masked") or "XX***XXX")
+            aadhaar_token = (result.get("encrypted_aadhaar") or "")[-8:] or "encrypted"
+            pan_token = (result.get("encrypted_pan") or "")[-8:] or "encrypted"
             _add_assistant_message(
                 state,
                 (
-                    "KYC verification completed through mock UIDAI/PAN services. "
-                    f"Aadhaar and PAN are verified for this application. Handing over to Credit Assessment Agent now."
+                    "KYC verification completed through mock UIDAI/PAN APIs.\n"
+                    "• Applicant: Verified Applicant\n"
+                    f"• Aadhaar: {aadhaar_masked}\n"
+                    f"• PAN: {pan_masked}\n"
+                    f"• Encrypted Aadhaar Token: ****{aadhaar_token}\n"
+                    f"• Encrypted PAN Token: ****{pan_token}\n"
+                    "Reply 'ok' to continue to Credit Bureau Check."
                 ),
             )
         else:
@@ -268,6 +277,7 @@ def fetch_credit_node(state: LoanWorkflowState) -> LoanWorkflowState:
         })
         
         state["credit_data"] = result
+        profile_name = result.get("name") or "Verified Applicant"
         
         # Check minimum credit score
         if result.get("credit_score", 0) < 700:
@@ -280,8 +290,9 @@ def fetch_credit_node(state: LoanWorkflowState) -> LoanWorkflowState:
             state,
             (
                 "Credit assessment completed using mock bureau/CIBIL dataset. "
+                f"Name match: {profile_name}. "
                 f"Credit score: {result.get('credit_score', 'N/A')}. "
-                "Moving to policy validation and affordability checks."
+                "Reply 'ok' to continue to Policy Validation."
             ),
         )
         
@@ -326,7 +337,7 @@ def check_policy_node(state: LoanWorkflowState) -> LoanWorkflowState:
             state["stage"] = "assess_affordability"
             _add_assistant_message(
                 state,
-                "Policy validation passed. Handing over to Affordability Agent.",
+                "Policy validation passed. Reply 'ok' to continue to Affordability Analysis.",
             )
         else:
             state["is_eligible"] = False
@@ -383,7 +394,7 @@ def assess_affordability_node(state: LoanWorkflowState) -> LoanWorkflowState:
                 (
                     f"Affordability analysis complete: status {result['status']}. "
                     f"Eligible amount: ₹{result.get('eligible_amount', 0):,.0f}. "
-                    "Handing over to Risk Scoring Agent."
+                    "Reply 'ok' to continue to Risk Scoring."
                 ),
             )
         else:
@@ -433,7 +444,7 @@ def assess_risk_node(state: LoanWorkflowState) -> LoanWorkflowState:
             state,
             (
                 f"Risk scoring complete. Segment: {result.get('risk_segment', 'N/A')} "
-                f"(score: {result.get('risk_score', 0):.2f}). Generating final offer now."
+                f"(score: {result.get('risk_score', 0):.2f}). Reply 'ok' to generate final offer."
             ),
         )
         
@@ -635,6 +646,57 @@ def run_workflow_until_pause(state: LoanWorkflowState) -> LoanWorkflowState:
         return state
 
 
+def run_workflow_stepwise(state: LoanWorkflowState) -> LoanWorkflowState:
+    """
+    Execute exactly one workflow step and then pause.
+    This enables explicit customer confirmation between stages.
+    """
+    current_stage = state["stage"]
+
+    if current_stage == "init":
+        return init_application(state)
+
+    if current_stage == "collect_info":
+        state = collect_information(state)
+        next_stage = should_continue_after_info(state)
+        if next_stage != END:
+            state["stage"] = next_stage
+        return state
+
+    if current_stage == "verify_kyc":
+        state = verify_kyc_node(state)
+    elif current_stage == "fetch_credit":
+        state = fetch_credit_node(state)
+    elif current_stage == "check_policy":
+        state = check_policy_node(state)
+    elif current_stage == "assess_affordability":
+        state = assess_affordability_node(state)
+    elif current_stage == "assess_risk":
+        state = assess_risk_node(state)
+    elif current_stage == "generate_offer":
+        state = generate_offer_node(state)
+        if state.get("stage") == "explain_offer":
+            state = explain_offer_node(state)
+    elif current_stage == "explain_offer":
+        state = explain_offer_node(state)
+    elif current_stage == "generate_sanction":
+        state = generate_sanction_node(state)
+    elif current_stage == "simulate_disbursement":
+        state = simulate_disbursement_node(state)
+    elif current_stage == "rejected":
+        state = handle_rejection_node(state)
+    elif current_stage in {"await_acceptance", "completed"}:
+        return state
+    else:
+        logger.warning(f"Unknown workflow stage encountered: {current_stage}")
+        return state
+
+    if state.get("stage") == "rejected":
+        state = handle_rejection_node(state)
+
+    return state
+
+
 def handle_acceptance_node(state: LoanWorkflowState) -> LoanWorkflowState:
     """
     Decision node: Handle customer's acceptance/rejection
@@ -678,7 +740,7 @@ def generate_sanction_node(state: LoanWorkflowState) -> LoanWorkflowState:
         state["stage"] = "simulate_disbursement"
         _add_assistant_message(
             state,
-            "Sanction letter generated successfully. Handing over to Disbursement Agent.",
+            "Sanction letter generated successfully. Reply 'ok' to complete disbursement simulation.",
         )
         
         logger.info(f"Sanction letter generated: {result['file_path']}")

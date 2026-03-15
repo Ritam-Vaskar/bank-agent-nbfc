@@ -16,9 +16,10 @@ from models.loan import Loan
 from database import mongodb, redis_client
 from workflows.loan_graph import (
     LoanWorkflowState,
+    REQUIRED_APPLICATION_FIELDS,
     generate_follow_up_response,
     handle_acceptance_node,
-    run_workflow_until_pause,
+    run_workflow_stepwise,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,34 @@ router = APIRouter(prefix="/loans", tags=["Loans"])
 ACCEPTANCE_KEYWORDS = ("accept", "yes", "agree", "confirm")
 REJECTION_KEYWORDS = ("reject", "no", "decline", "cancel")
 AUTOFILL_KEYWORDS = ("auto", "autofill", "demo", "autofill demo")
+CONTINUE_KEYWORDS = ("ok", "okay", "continue", "next", "start", "initiate", "do")
+STEP_CONFIRMATION_STAGES = {
+    "verify_kyc",
+    "fetch_credit",
+    "check_policy",
+    "assess_affordability",
+    "assess_risk",
+    "generate_offer",
+    "generate_sanction",
+    "simulate_disbursement",
+}
+
+
+def _build_pipeline_progress(state: LoanWorkflowState, status_value: str | None = None) -> Dict[str, Any]:
+    kyc_data = state.get("kyc_data") or {}
+    credit_data = state.get("credit_data") or {}
+
+    return {
+        "kyc_done": kyc_data.get("kyc_status") == "VERIFIED",
+        "credit_done": credit_data.get("credit_score") is not None,
+        "policy_done": state.get("policy_validation") is not None,
+        "affordability_done": state.get("affordability_result") is not None,
+        "risk_done": state.get("risk_assessment") is not None,
+        "offer_done": state.get("loan_offer") is not None,
+        "sanction_done": state.get("sanction_letter_path") is not None,
+        "current_stage": state.get("stage"),
+        "status": status_value,
+    }
 
 
 def _normalize_loan_type(loan_type: str) -> str:
@@ -91,7 +120,7 @@ async def start_loan_application(
         
         # Run first two nodes (init + collect_info greeting)
         # Use recursion_limit to prevent infinite loops
-        result_state = run_workflow_until_pause(initial_state)
+        result_state = run_workflow_stepwise(initial_state)
         
         # Save application to database
         application_doc = {
@@ -102,6 +131,7 @@ async def start_loan_application(
             "workflow_stage": result_state["stage"],
             "application_data": result_state["application_data"],
             "conversation_messages": result_state["messages"],
+            "progress": _build_pipeline_progress(result_state, "IN_PROGRESS"),
             "is_eligible": result_state["is_eligible"],
             "is_accepted": result_state["is_accepted"],
             "created_at": result_state["created_at"],
@@ -117,7 +147,8 @@ async def start_loan_application(
             "loan_type": loan_type,
             "status": "IN_PROGRESS",
             "stage": result_state["stage"],
-            "messages": result_state["messages"]
+            "messages": result_state["messages"],
+            "progress": _build_pipeline_progress(result_state, "IN_PROGRESS")
         }
         
     except Exception as e:
@@ -195,6 +226,7 @@ async def chat_with_workflow(
         message_lower = message.lower()
         is_acceptance_message = any(word in message_lower for word in ACCEPTANCE_KEYWORDS)
         is_rejection_message = any(word in message_lower for word in REJECTION_KEYWORDS)
+        is_continue_message = any(word in message_lower for word in CONTINUE_KEYWORDS)
         
         # Parse application data if in collection stage
         if state["stage"] == "collect_info":
@@ -359,7 +391,7 @@ async def chat_with_workflow(
             if is_acceptance_message and not is_rejection_message:
                 state["is_accepted"] = True
                 state = handle_acceptance_node(state)
-                result_state = run_workflow_until_pause(state)
+                result_state = run_workflow_stepwise(state)
             elif is_rejection_message:
                 state["is_accepted"] = False
                 result_state = handle_acceptance_node(state)
@@ -371,8 +403,29 @@ async def chat_with_workflow(
                     "timestamp": datetime.now().isoformat()
                 })
                 result_state = state
+        elif state["stage"] == "collect_info":
+            has_all_required = all(
+                state["application_data"].get(field) not in (None, "")
+                for field in REQUIRED_APPLICATION_FIELDS
+            )
+
+            if has_all_required and is_acceptance_message:
+                state["stage"] = "verify_kyc"
+                result_state = run_workflow_stepwise(state)
+            else:
+                result_state = run_workflow_stepwise(state)
+        elif state["stage"] in STEP_CONFIRMATION_STAGES:
+            if is_continue_message or is_acceptance_message:
+                result_state = run_workflow_stepwise(state)
+            else:
+                state["messages"].append({
+                    "role": "assistant",
+                    "content": "Reply 'ok' to continue to the next stage.",
+                    "timestamp": datetime.now().isoformat()
+                })
+                result_state = state
         else:
-            result_state = run_workflow_until_pause(state)
+            result_state = run_workflow_stepwise(state)
         
         # Update database
         update_doc = {
@@ -404,6 +457,8 @@ async def chat_with_workflow(
             update_doc["status"] = "REJECTED"
         else:
             update_doc["status"] = "IN_PROGRESS"
+
+        update_doc["progress"] = _build_pipeline_progress(result_state, update_doc["status"])
         
         await mongodb.loan_applications.update_one(
             {"application_id": application_id},
@@ -445,6 +500,7 @@ async def chat_with_workflow(
             "loan_offer": result_state.get("loan_offer"),
             "emi_schedule": result_state.get("emi_schedule"),
             "loan_id": result_state.get("loan_id"),
+            "progress": _build_pipeline_progress(result_state, update_doc["status"]),
             "completed": result_state["stage"] in ["completed", "rejected"]
         }
         

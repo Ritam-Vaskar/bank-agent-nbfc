@@ -289,11 +289,11 @@ export default function ApplyPage() {
         </div>
       </header>
 
-      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid lg:grid-cols-3 gap-6 h-full">
+      <div className="flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="grid lg:grid-cols-3 gap-6 h-full min-h-0">
 
           {/* ── Sidebar ── */}
-          <div className="lg:col-span-1 space-y-4">
+          <div className="lg:col-span-1 space-y-4 lg:h-full lg:overflow-y-auto pr-1">
 
             {/* Agent Pipeline Progress */}
             <Card>
@@ -523,7 +523,7 @@ export default function ApplyPage() {
           </div>
 
           {/* ── Chat Interface ── */}
-          <Card className="lg:col-span-2 flex flex-col" style={{ height: 'calc(100vh - 200px)' }}>
+          <Card className="lg:col-span-2 flex flex-col h-screen overflow-hidden">
             <CardHeader className="flex-shrink-0 border-b pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
@@ -541,7 +541,7 @@ export default function ApplyPage() {
                 </Badge>
               </div>
             </CardHeader>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               <ChatInterface
                 messages={messages}
                 onSendMessage={handleSendMessage}

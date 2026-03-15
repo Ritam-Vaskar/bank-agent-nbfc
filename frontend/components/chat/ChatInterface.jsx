@@ -28,7 +28,7 @@ const ChatInterface = ({ messages = [], onSendMessage, isLoading, isConversation
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {!hasMessages ? (

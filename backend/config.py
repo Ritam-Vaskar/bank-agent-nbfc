@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
     SMTP_USE_SSL: bool = False
+
+    # Email / Resend Configuration
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
+    RESEND_API_BASE_URL: str = "https://api.resend.com"
     
     @property
     def cors_origins_list(self) -> List[str]:

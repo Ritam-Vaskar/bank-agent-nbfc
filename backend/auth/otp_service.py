@@ -70,13 +70,18 @@ class OTPService:
 
         fallback_reason = None
         if not email_sent:
-            if not email_service.is_configured:
+            provider = email_service.active_provider
+            if provider == "resend":
+                fallback_reason = "Resend API send failed. Check backend logs for detailed error."
+            elif provider == "smtp":
+                fallback_reason = "SMTP send failed. Check backend logs for detailed SMTP error."
+            elif not email_service.is_configured:
                 fallback_reason = (
-                    "SMTP not configured. Missing: "
+                    "Email provider not configured. Missing: "
                     + ", ".join(email_service.missing_config_fields())
                 )
             else:
-                fallback_reason = "SMTP send failed. Check backend logs for detailed SMTP error."
+                fallback_reason = "Email send failed. Check backend logs for details."
 
         # Fallback: keep console simulation when SMTP is not configured/failed
         if not email_sent:

@@ -289,6 +289,7 @@ bank-agent/
 │   └── lib/               # API client, utilities
 ├── docs/
 │   ├── ARCHITECTURE.md    # Detailed architecture
+│   ├── TECHNICAL_DOCUMENTATION.md  # Full technical design and agent flow
 │   └── API.md             # Extended API docs
 ├── docker-compose.yml
 ├── .env.example

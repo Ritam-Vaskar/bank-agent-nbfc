@@ -57,6 +57,37 @@ def _build_offer_prompt_context(offer: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _next_field_prompt(field: str, loan_type: str) -> str:
+    loan_label = loan_type.replace("_", " ")
+    prompts = {
+        "aadhaar": "Please share your 12-digit Aadhaar number.",
+        "pan": "Please share your PAN number in format AAAAA9999A.",
+        "monthly_income": "Please share your monthly income in INR.",
+        "requested_amount": f"How much {loan_label} amount would you like to borrow?",
+        "tenure_months": "What tenure do you prefer? Share months or years (for example: 60 months or 5 years).",
+        "age": "Please share your age.",
+        "employment_type": "Are you salaried or self-employed?",
+        "employment_years": "How many years have you been employed?",
+        "city_tier": "Which city tier do you belong to? Reply with Tier 1, Tier 2, or Tier 3.",
+    }
+    return prompts.get(field, "Please share the next required detail.")
+
+
+def _applicant_name(state: "LoanWorkflowState") -> str:
+    return (
+        ((state.get("kyc_data") or {}).get("applicant_name"))
+        or ((state.get("credit_data") or {}).get("name"))
+        or "Customer"
+    )
+
+
+def _safe_number(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
 def _add_assistant_message(state: "LoanWorkflowState", content: str) -> None:
     state["messages"].append({
         "role": "assistant",
@@ -160,53 +191,36 @@ def init_application(state: LoanWorkflowState) -> LoanWorkflowState:
 
 def collect_information(state: LoanWorkflowState) -> LoanWorkflowState:
     """
-    LLM node: Collect application information from user
-    Uses conversational interface to gather all required data
+    Deterministic node: collect application information one field at a time.
     """
-    application_context = _safe_application_context(state.get("application_data", {}))
     missing_fields = _missing_application_fields(state.get("application_data", {}))
 
     if not missing_fields:
+        app_data = state.get("application_data", {})
+        requested_amount = _safe_number(app_data.get("requested_amount"), 0)
+        monthly_income = _safe_number(app_data.get("monthly_income"), 0)
         _add_assistant_message(
             state,
-            "All required details received. Reply 'yes' to start KYC verification.",
+            (
+                "All required details received. Please cross-check once:\n"
+                f"• Age: {app_data.get('age', 'N/A')}\n"
+                f"• Employment: {str(app_data.get('employment_type', 'N/A')).replace('_', ' ').title()} ({app_data.get('employment_years', 'N/A')} years)\n"
+                f"• Monthly income: ₹{monthly_income:,.0f}\n"
+                f"• Requested amount: ₹{requested_amount:,.0f}\n"
+                f"• Tenure: {app_data.get('tenure_months', 'N/A')} months\n"
+                f"• City tier: Tier {app_data.get('city_tier', 'N/A')}\n\n"
+                "If everything looks correct, reply 'yes' to start KYC verification."
+            ),
         )
         state["updated_at"] = datetime.now().isoformat()
-        logger.info(f"Collection complete for {state['application_id']}; moving to verification")
+        logger.info(f"Collection complete for {state['application_id']}; awaiting confirmation")
         return state
 
-    system_prompt = PROMPTS["collect_info"].format(loan_type=state["loan_type"]) + (
-        "\n\nCONVERSATION RULES:\n"
-        "- The customer has already been greeted. Do not greet them again.\n"
-        "- Continue from the current conversation only.\n"
-        f"- Already collected fields: {', '.join(sorted(application_context.keys())) or 'none'}.\n"
-        f"- Missing required fields: {', '.join(missing_fields) or 'none'}.\n"
-        "- Ask only for the next most important missing detail.\n"
-        "- If all required fields are available, confirm that verification is starting."
-    )
-    
-    # Build message history
-    messages = [SystemMessage(content=system_prompt)]
-    for msg in state["messages"]:
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
-    
-    # Get LLM response
-    response = llm.invoke(messages)
-    
-    # Add to conversation
-    state["messages"].append({
-        "role": "assistant",
-        "content": response.content
-    })
+    next_field = missing_fields[0]
+    _add_assistant_message(state, _next_field_prompt(next_field, state["loan_type"]))
     
     state["updated_at"] = datetime.now().isoformat()
-    
-    # Check if ready to proceed (this would be determined by parsing user responses)
-    # For now, assume collection is done when application_data is populated
-    
+
     logger.info(f"Information collection step for {state['application_id']}")
     return state
 
@@ -235,16 +249,21 @@ def verify_kyc_node(state: LoanWorkflowState) -> LoanWorkflowState:
             pan_masked = ((result.get("pan") or {}).get("masked") or "XX***XXX")
             aadhaar_token = (result.get("encrypted_aadhaar") or "")[-8:] or "encrypted"
             pan_token = (result.get("encrypted_pan") or "")[-8:] or "encrypted"
+            applicant_name = result.get("applicant_name") or "Verified Applicant"
+            applicant_dob = result.get("applicant_dob") or "N/A"
+            applicant_mobile = result.get("applicant_mobile_masked") or "N/A"
             _add_assistant_message(
                 state,
                 (
                     "KYC verification completed through mock UIDAI/PAN APIs.\n"
-                    "• Applicant: Verified Applicant\n"
+                    f"• Applicant: {applicant_name}\n"
+                    f"• DOB: {applicant_dob}\n"
+                    f"• Mobile: {applicant_mobile}\n"
                     f"• Aadhaar: {aadhaar_masked}\n"
                     f"• PAN: {pan_masked}\n"
                     f"• Encrypted Aadhaar Token: ****{aadhaar_token}\n"
                     f"• Encrypted PAN Token: ****{pan_token}\n"
-                    "Reply 'ok' to continue to Credit Bureau Check."
+                    "If these identity details are correct, reply 'ok' to continue to Credit Bureau Check."
                 ),
             )
         else:
@@ -289,10 +308,12 @@ def fetch_credit_node(state: LoanWorkflowState) -> LoanWorkflowState:
         _add_assistant_message(
             state,
             (
-                "Credit assessment completed using mock bureau/CIBIL dataset. "
-                f"Name match: {profile_name}. "
-                f"Credit score: {result.get('credit_score', 'N/A')}. "
-                "Reply 'ok' to continue to Policy Validation."
+                f"Credit assessment completed for {profile_name}.\n"
+                f"• Credit score: {result.get('credit_score', 'N/A')}\n"
+                f"• Active loans: {result.get('active_loans', 'N/A')}\n"
+                f"• Existing EMI: ₹{_safe_number(result.get('existing_emi'), 0):,.0f}\n"
+                f"• DPD (30 days): {result.get('dpd_30_days', 'N/A')}\n"
+                "Cross-check done against the mock CIBIL dataset. Reply 'ok' to continue to Policy Validation."
             ),
         )
         
@@ -335,9 +356,17 @@ def check_policy_node(state: LoanWorkflowState) -> LoanWorkflowState:
         
         if result["is_eligible"]:
             state["stage"] = "assess_affordability"
+            app_data = state.get("application_data", {})
             _add_assistant_message(
                 state,
-                "Policy validation passed. Reply 'ok' to continue to Affordability Analysis.",
+                (
+                    "Policy validation passed against current lending rules.\n"
+                    f"• Loan type: {state.get('loan_type', '').replace('_', ' ').title()}\n"
+                    f"• Requested amount: ₹{_safe_number(app_data.get('requested_amount'), 0):,.0f}\n"
+                    f"• Tenure: {app_data.get('tenure_months', 'N/A')} months\n"
+                    f"• Credit score considered: {state.get('credit_data', {}).get('credit_score', 'N/A')}\n"
+                    "Reply 'ok' to continue to Affordability Analysis."
+                ),
             )
         else:
             state["is_eligible"] = False
@@ -392,8 +421,11 @@ def assess_affordability_node(state: LoanWorkflowState) -> LoanWorkflowState:
             _add_assistant_message(
                 state,
                 (
-                    f"Affordability analysis complete: status {result['status']}. "
-                    f"Eligible amount: ₹{result.get('eligible_amount', 0):,.0f}. "
+                    f"Affordability analysis completed: {result['status']}.\n"
+                    f"• Monthly income considered: ₹{_safe_number(app_data.get('monthly_income'), 0):,.0f}\n"
+                    f"• Existing EMI considered: ₹{_safe_number(credit_data.get('existing_emi'), 0):,.0f}\n"
+                    f"• Eligible amount: ₹{_safe_number(result.get('eligible_amount'), 0):,.0f}\n"
+                    f"• FOIR at requested amount: {(_safe_number(result.get('foir_requested'), 0) * 100):.1f}%\n"
                     "Reply 'ok' to continue to Risk Scoring."
                 ),
             )
@@ -443,8 +475,12 @@ def assess_risk_node(state: LoanWorkflowState) -> LoanWorkflowState:
         _add_assistant_message(
             state,
             (
-                f"Risk scoring complete. Segment: {result.get('risk_segment', 'N/A')} "
-                f"(score: {result.get('risk_score', 0):.2f}). Reply 'ok' to generate final offer."
+                "Risk scoring completed with profile cross-check.\n"
+                f"• Segment: {result.get('risk_segment', 'N/A')}\n"
+                f"• Composite risk score: {_safe_number(result.get('risk_score'), 0):.2f}\n"
+                f"• Employment type: {str(app_data.get('employment_type', 'N/A')).replace('_', ' ').title()}\n"
+                f"• Employment years: {app_data.get('employment_years', 'N/A')}\n"
+                "Reply 'ok' to generate your final personalized offer."
             ),
         )
         
@@ -514,12 +550,14 @@ def explain_offer_node(state: LoanWorkflowState) -> LoanWorkflowState:
     _add_assistant_message(
         state,
         (
-            "Loan offer generated successfully.\n"
+            f"Great news, {_applicant_name(state)} — your personalized offer is ready.\n"
             f"• Amount: ₹{offer.get('principal', 0):,.0f}\n"
             f"• Tenure: {offer.get('tenure_months', 0)} months\n"
             f"• Rate: {offer.get('interest_rate', 0)}% p.a.\n"
             f"• EMI: ₹{offer.get('monthly_emi', 0):,.0f}\n"
+            f"• Processing fee (incl. GST): ₹{offer.get('total_processing_fee', offer.get('processing_fee', 0)):,.0f}\n"
             f"• Net disbursement: ₹{offer.get('net_disbursement', 0):,.0f}\n\n"
+            "Please review and cross-check these terms. "
             "Reply with 'accept' to proceed to sanction letter and disbursement simulation, or 'reject' to decline."
         ),
     )
@@ -707,7 +745,12 @@ def handle_acceptance_node(state: LoanWorkflowState) -> LoanWorkflowState:
         state["loan_id"] = str(uuid.uuid4())
         _add_assistant_message(
             state,
-            "Offer accepted. Handing over to Sanction Letter Agent to generate your structured PDF.",
+            (
+                f"Thank you, {_applicant_name(state)}. Offer accepted successfully.\n"
+                f"• Application ID: {state.get('application_id')}\n"
+                f"• Loan Reference: {state.get('loan_id')}\n"
+                "Handing over to Sanction Letter Agent to generate your structured PDF."
+            ),
         )
     else:
         state["stage"] = "completed"
@@ -727,12 +770,24 @@ def generate_sanction_node(state: LoanWorkflowState) -> LoanWorkflowState:
     """
     try:
         from workflows.tools import generate_sanction_letter
+
+        application_data_for_pdf = {
+            **(state.get("application_data") or {}),
+            "application_id": state.get("application_id"),
+        }
+        kyc_data = state.get("kyc_data") or {}
+        applicant_name = kyc_data.get("applicant_name")
+        applicant_email = application_data_for_pdf.get("email")
         
         result = generate_sanction_letter.invoke({
             "loan_id": state["loan_id"],
-            "application_data": state["application_data"],
+            "application_data": application_data_for_pdf,
             "offer_data": state["loan_offer"],
-            "user_data": {"user_id": state["user_id"], "email": state["application_data"].get("email", "customer@example.com")},
+            "user_data": {
+                "user_id": state["user_id"],
+                "full_name": applicant_name,
+                "email": applicant_email,
+            },
             "emi_summary": state["emi_schedule"]["summary"]
         })
         
@@ -740,7 +795,12 @@ def generate_sanction_node(state: LoanWorkflowState) -> LoanWorkflowState:
         state["stage"] = "simulate_disbursement"
         _add_assistant_message(
             state,
-            "Sanction letter generated successfully. Reply 'ok' to complete disbursement simulation.",
+            (
+                "Sanction letter generated successfully and attached to your loan record.\n"
+                f"• Application ID: {state.get('application_id')}\n"
+                f"• Loan ID: {state.get('loan_id')}\n"
+                "Reply 'ok' to complete disbursement simulation."
+            ),
         )
         
         logger.info(f"Sanction letter generated: {result['file_path']}")
@@ -763,11 +823,11 @@ def simulate_disbursement_node(state: LoanWorkflowState) -> LoanWorkflowState:
     _add_assistant_message(
         state,
         (
-            "Disbursement simulation completed.\n"
+            f"Disbursement simulation completed for {_applicant_name(state)}.\n"
             f"• Loan ID: {state['loan_id']}\n"
             f"• Disbursement amount: ₹{state['loan_offer']['net_disbursement']:,.0f}\n"
             "• Expected credit timeline: 2-3 business days\n"
-            "Your chat is saved and sanction letter is available from loan details."
+            "Your chat is saved and sanction letter is available from loan details for future cross-check and follow-up."
         ),
     )
     
@@ -809,14 +869,15 @@ def should_continue_after_info(state: LoanWorkflowState) -> str:
     # Check if we have all required fields
     app_data = state.get("application_data", {})
     required_fields = REQUIRED_APPLICATION_FIELDS
-    
-    if all(field in app_data for field in required_fields):
-        logger.info(f"All required fields collected, proceeding to KYC verification")
-        return "verify_kyc"
-    
+
+    missing_fields = [f for f in required_fields if f not in app_data]
+    if not missing_fields:
+        logger.info("All required fields collected, awaiting explicit customer confirmation for KYC")
+        return END
+
     # Otherwise, stop and wait for more user input
     # Don't loop back to collect_info - that will trigger LLM again
-    logger.info(f"Missing fields: {[f for f in required_fields if f not in app_data]}, waiting for user input")
+    logger.info(f"Missing fields: {missing_fields}, waiting for user input")
     return END
 
 

@@ -309,6 +309,69 @@ export default function ApplyPage() {
     await handleSendMessage('I do not want to proceed with this loan offer.');
   };
 
+  const handleTerminateChat = async () => {
+    if (!currentApplicationId || isLoading) return;
+    const shouldTerminate = typeof window === 'undefined' ? true : window.confirm('Terminate this chat and close the current application?');
+    if (!shouldTerminate) return;
+
+    setLoading(true);
+    try {
+      await loansAPI.terminateChat(currentApplicationId);
+      const refreshed = await loansAPI.getApplication(currentApplicationId);
+      const application = refreshed.data;
+      setApplicationSnapshot({
+        applicationId: application.application_id,
+        loanType: application.loan_type,
+        messages: (application.conversation_messages || []).map((m) => ({
+          ...m,
+          timestamp: m.timestamp || new Date().toISOString(),
+        })),
+        stage: application.workflow_stage,
+        status: application.status,
+        progress: application.progress || null,
+        loanOffer: application.loan_offer || null,
+        loanId: application.loan_id || null,
+        isCompleted: ['completed', 'rejected'].includes(application.workflow_stage),
+      });
+      toast.success('Chat terminated successfully.');
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || 'Failed to terminate chat');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetChat = async () => {
+    if (!currentApplicationId || isLoading) return;
+    const shouldReset = typeof window === 'undefined' ? true : window.confirm('Reset this chat and start the same application from scratch?');
+    if (!shouldReset) return;
+
+    setLoading(true);
+    try {
+      const response = await loansAPI.resetChat(currentApplicationId);
+      const { messages: backendMessages, stage, status, progress } = response.data;
+      setApplicationSnapshot({
+        applicationId: currentApplicationId,
+        loanType,
+        messages: (backendMessages || []).map((m) => ({
+          ...m,
+          timestamp: m.timestamp || new Date().toISOString(),
+        })),
+        stage,
+        status,
+        progress,
+        loanOffer: null,
+        loanId: null,
+        isCompleted: false,
+      });
+      toast.success('Chat reset successfully.');
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || 'Failed to reset chat');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isRejected = applicationStatus === 'DECLINED' || workflowStage === 'rejected';
   const isProcessComplete = isCompleted || workflowStage === 'completed' || isRejected;
   const showOfferActions = loanOffer && workflowStage === 'await_acceptance' && !isLoading;
@@ -365,10 +428,10 @@ export default function ApplyPage() {
       </header>
 
       <div className="flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid lg:grid-cols-3 gap-6 h-full min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full min-h-0 lg:h-[calc(100vh-130px)]">
 
           {/* ── Sidebar ── */}
-          <div className="lg:col-span-1 space-y-4 lg:h-full lg:overflow-y-auto pr-1">
+          <div className="lg:col-span-3 space-y-4 lg:h-full lg:overflow-y-auto pr-1">
 
             {/* Agent Pipeline Progress */}
             <Card>
@@ -446,6 +509,88 @@ export default function ApplyPage() {
               </CardContent>
             </Card>
 
+            {/* How it works */}
+            {!isProcessComplete && !loanOffer && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">How it works</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ol className="space-y-2 text-sm text-gray-600">
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-primary-600">1.</span>
+                      <span>Provide KYC details (Aadhaar, PAN) and loan requirement</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-primary-600">2.</span>
+                      <span>Agents verify identity via mock UIDAI, fetch credit via mock CIBIL</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-primary-600">3.</span>
+                      <span>Affordability & risk scoring runs automatically</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-semibold text-primary-600">4.</span>
+                      <span>Accept the offer to get your sanction letter PDF</span>
+                    </li>
+                  </ol>
+                  <p className="mt-3 text-xs text-gray-400">
+                    Tip: type <code className="bg-gray-100 px-1 rounded">demo</code> to auto-fill sample data and run the full flow instantly.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* ── Chat Interface ── */}
+          <Card className="lg:col-span-6 flex flex-col h-full min-h-[70vh] lg:min-h-0 overflow-hidden">
+            <CardHeader className="flex-shrink-0 border-b pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-primary-600" />
+                  Loan Agent Chat
+                </CardTitle>
+                <Badge variant={isRejected ? 'danger' : isProcessComplete ? 'success' : 'info'}>
+                  {isRejected
+                    ? 'Application Closed'
+                    : isProcessComplete
+                    ? 'Completed'
+                    : isLoading
+                    ? 'Agent thinking…'
+                    : 'AI Powered'}
+                </Badge>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetChat}
+                  disabled={!currentApplicationId || isLoading}
+                >
+                  Reset Chat
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTerminateChat}
+                  disabled={!currentApplicationId || isLoading}
+                >
+                  Terminate Chat
+                </Button>
+              </div>
+            </CardHeader>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ChatInterface
+                messages={messages}
+                onSendMessage={handleSendMessage}
+                isLoading={isLoading}
+                isConversationComplete={isProcessComplete}
+              />
+            </div>
+          </Card>
+
+          {/* ── Right Sidebar ── */}
+          <div className="lg:col-span-3 space-y-4 lg:h-full lg:overflow-y-auto pr-1">
             {/* Completion card */}
             {isProcessComplete && (
               <Card
@@ -560,68 +705,7 @@ export default function ApplyPage() {
                 </CardContent>
               </Card>
             )}
-
-            {/* How it works */}
-            {!isProcessComplete && !loanOffer && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">How it works</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ol className="space-y-2 text-sm text-gray-600">
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-primary-600">1.</span>
-                      <span>Provide KYC details (Aadhaar, PAN) and loan requirement</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-primary-600">2.</span>
-                      <span>Agents verify identity via mock UIDAI, fetch credit via mock CIBIL</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-primary-600">3.</span>
-                      <span>Affordability & risk scoring runs automatically</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-semibold text-primary-600">4.</span>
-                      <span>Accept the offer to get your sanction letter PDF</span>
-                    </li>
-                  </ol>
-                  <p className="mt-3 text-xs text-gray-400">
-                    Tip: type <code className="bg-gray-100 px-1 rounded">demo</code> to auto-fill sample data and run the full flow instantly.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
           </div>
-
-          {/* ── Chat Interface ── */}
-          <Card className="lg:col-span-2 flex flex-col h-screen overflow-hidden">
-            <CardHeader className="flex-shrink-0 border-b pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5 text-primary-600" />
-                  Loan Agent Chat
-                </CardTitle>
-                <Badge variant={isRejected ? 'danger' : isProcessComplete ? 'success' : 'info'}>
-                  {isRejected
-                    ? 'Application Closed'
-                    : isProcessComplete
-                    ? 'Completed'
-                    : isLoading
-                    ? 'Agent thinking…'
-                    : 'AI Powered'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <ChatInterface
-                messages={messages}
-                onSendMessage={handleSendMessage}
-                isLoading={isLoading}
-                isConversationComplete={isProcessComplete}
-              />
-            </div>
-          </Card>
 
         </div>
       </div>

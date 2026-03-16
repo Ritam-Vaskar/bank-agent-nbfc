@@ -13,6 +13,7 @@ from auth.dependencies import get_current_user
 from models.user import User
 from models.loan_application import LoanApplication, ApplicationData, ConversationMessage, ChatMessage
 from models.loan import Loan
+from engines.kyc_engine import kyc_engine
 from database import mongodb, redis_client
 from workflows.loan_graph import (
     LoanWorkflowState,
@@ -29,7 +30,9 @@ router = APIRouter(prefix="/loans", tags=["Loans"])
 ACCEPTANCE_KEYWORDS = ("accept", "yes", "agree", "confirm")
 REJECTION_KEYWORDS = ("reject", "no", "decline", "cancel")
 AUTOFILL_KEYWORDS = ("auto", "autofill", "demo", "autofill demo")
-CONTINUE_KEYWORDS = ("ok", "okay", "continue", "next", "start", "initiate", "do")
+CONTINUE_KEYWORDS = ("ok", "okay", "continue", "next", "start", "initiate")
+TERMINATE_KEYWORDS = ("terminate", "end chat", "end and terminate chat", "close chat", "stop chat")
+RESET_KEYWORDS = ("reset", "reset chat", "restart", "start over", "new chat")
 STEP_CONFIRMATION_STAGES = {
     "verify_kyc",
     "fetch_credit",
@@ -40,6 +43,24 @@ STEP_CONFIRMATION_STAGES = {
     "generate_sanction",
     "simulate_disbursement",
 }
+
+
+def _has_intent(message: str, keywords: tuple[str, ...]) -> bool:
+    import re
+
+    normalized = re.sub(r"\s+", " ", message.lower()).strip()
+    if not normalized:
+        return False
+
+    if normalized in keywords:
+        return True
+
+    for keyword in keywords:
+        escaped = re.escape(keyword)
+        if re.search(rf"\b{escaped}\b", normalized):
+            return True
+
+    return False
 
 
 def _build_pipeline_progress(state: LoanWorkflowState, status_value: str | None = None) -> Dict[str, Any]:
@@ -63,6 +84,101 @@ def _normalize_loan_type(loan_type: str) -> str:
     if loan_type.endswith("_loan"):
         return loan_type
     return f"{loan_type}_loan"
+
+
+def _build_initial_state(
+    application_id: str,
+    user_id: str,
+    loan_type: str,
+    user_email: str | None = None,
+) -> LoanWorkflowState:
+    application_data = {
+        "application_id": application_id,
+    }
+    if user_email:
+        application_data["email"] = user_email
+
+    return {
+        "application_id": application_id,
+        "user_id": user_id,
+        "loan_type": loan_type,
+        "stage": "init",
+        "application_data": application_data,
+        "kyc_data": None,
+        "credit_data": None,
+        "policy_validation": None,
+        "affordability_result": None,
+        "risk_assessment": None,
+        "loan_offer": None,
+        "emi_schedule": None,
+        "loan_id": None,
+        "sanction_letter_path": None,
+        "messages": [],
+        "is_eligible": True,
+        "is_accepted": False,
+        "rejection_reason": None,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _first_non_empty(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip():
+                return value.strip()
+            continue
+        return value
+    return None
+
+
+def _lookup_registry_identity(aadhaar: Any, pan: Any) -> Dict[str, Any]:
+    aadhaar_key = str(aadhaar or "").replace("-", "").replace(" ", "").strip()
+    pan_key = str(pan or "").upper().strip()
+
+    if aadhaar_key and aadhaar_key in kyc_engine.identity_by_aadhaar:
+        return kyc_engine.identity_by_aadhaar.get(aadhaar_key) or {}
+    if pan_key and pan_key in kyc_engine.identity_by_pan:
+        return kyc_engine.identity_by_pan.get(pan_key) or {}
+    return {}
+
+
+def _extract_customer_identity(app_doc: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not app_doc:
+        return {}
+
+    app_data = app_doc.get("application_data") or {}
+    kyc_data = app_doc.get("kyc_data") or {}
+    aadhaar_data = kyc_data.get("aadhaar") or {}
+    pan_data = kyc_data.get("pan") or {}
+    registry_data = _lookup_registry_identity(
+        app_data.get("aadhaar") or aadhaar_data.get("number"),
+        app_data.get("pan") or pan_data.get("number"),
+    )
+
+    aadhaar_value = app_data.get("aadhaar") or aadhaar_data.get("number") or aadhaar_data.get("masked")
+    pan_value = app_data.get("pan") or pan_data.get("number") or pan_data.get("masked")
+    mobile_value = app_data.get("mobile") or kyc_data.get("applicant_mobile") or kyc_data.get("applicant_mobile_masked")
+
+    return {
+        "full_name": _first_non_empty(
+            kyc_data.get("applicant_name"),
+            kyc_data.get("full_name"),
+            kyc_data.get("name"),
+            app_data.get("full_name"),
+            registry_data.get("full_name"),
+        ),
+        "mobile": _first_non_empty(mobile_value, registry_data.get("mobile")),
+        "dob": _first_non_empty(kyc_data.get("applicant_dob"), app_data.get("dob"), registry_data.get("dob")),
+        "aadhaar": _first_non_empty(aadhaar_value, registry_data.get("aadhaar")),
+        "aadhaar_masked": aadhaar_data.get("masked"),
+        "pan": _first_non_empty(pan_value, registry_data.get("pan")),
+        "pan_masked": pan_data.get("masked"),
+        "city_tier": _first_non_empty(app_data.get("city_tier"), registry_data.get("city_tier")),
+        "kyc_status": kyc_data.get("kyc_status"),
+    }
 
 
 @router.post("/apply")
@@ -95,28 +211,12 @@ async def start_loan_application(
         application_id = str(uuid.uuid4())
         
         # Initialize workflow state
-        initial_state: LoanWorkflowState = {
-            "application_id": application_id,
-            "user_id": current_user.user_id,
-            "loan_type": loan_type,
-            "stage": "init",
-            "application_data": {},
-            "kyc_data": None,
-            "credit_data": None,
-            "policy_validation": None,
-            "affordability_result": None,
-            "risk_assessment": None,
-            "loan_offer": None,
-            "emi_schedule": None,
-            "loan_id": None,
-            "sanction_letter_path": None,
-            "messages": [],
-            "is_eligible": True,
-            "is_accepted": False,
-            "rejection_reason": None,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
+        initial_state: LoanWorkflowState = _build_initial_state(
+            application_id=application_id,
+            user_id=current_user.user_id,
+            loan_type=loan_type,
+            user_email=current_user.email,
+        )
         
         # Run first two nodes (init + collect_info greeting)
         # Use recursion_limit to prevent infinite loops
@@ -128,6 +228,7 @@ async def start_loan_application(
             "user_id": current_user.user_id,
             "loan_type": loan_type,
             "status": "IN_PROGRESS",
+            "owner_email": current_user.email,
             "workflow_stage": result_state["stage"],
             "application_data": result_state["application_data"],
             "conversation_messages": result_state["messages"],
@@ -215,6 +316,9 @@ async def chat_with_workflow(
             "created_at": app_doc["created_at"],
             "updated_at": datetime.now().isoformat()
         }
+
+        state["application_data"].setdefault("application_id", application_id)
+        state["application_data"].setdefault("email", app_doc.get("owner_email") or current_user.email)
         
         # Add user message to state
         state["messages"].append({
@@ -224,12 +328,40 @@ async def chat_with_workflow(
         })
         
         message_lower = message.lower()
-        is_acceptance_message = any(word in message_lower for word in ACCEPTANCE_KEYWORDS)
-        is_rejection_message = any(word in message_lower for word in REJECTION_KEYWORDS)
-        is_continue_message = any(word in message_lower for word in CONTINUE_KEYWORDS)
+        is_acceptance_message = _has_intent(message, ACCEPTANCE_KEYWORDS)
+        is_rejection_message = _has_intent(message, REJECTION_KEYWORDS)
+        is_continue_message = _has_intent(message, CONTINUE_KEYWORDS)
+        is_terminate_message = _has_intent(message, TERMINATE_KEYWORDS)
+        is_reset_message = _has_intent(message, RESET_KEYWORDS)
+
+        if is_terminate_message:
+            state["stage"] = "completed"
+            state["is_eligible"] = False
+            state["is_accepted"] = False
+            state["rejection_reason"] = "Chat terminated by user"
+            state["updated_at"] = datetime.now().isoformat()
+            state["messages"].append({
+                "role": "assistant",
+                "content": "Chat terminated. This application is now closed. Use Reset Chat to start again.",
+                "timestamp": datetime.now().isoformat()
+            })
+            result_state = state
+        elif is_reset_message:
+            reset_state = _build_initial_state(
+                application_id=application_id,
+                user_id=current_user.user_id,
+                loan_type=app_doc["loan_type"],
+                user_email=app_doc.get("owner_email") or current_user.email,
+            )
+            result_state = run_workflow_stepwise(reset_state)
+            result_state["messages"].append({
+                "role": "assistant",
+                "content": "Chat reset successfully. Let's start fresh.",
+                "timestamp": datetime.now().isoformat()
+            })
         
         # Parse application data if in collection stage
-        if state["stage"] == "collect_info":
+        if not is_terminate_message and not is_reset_message and state["stage"] == "collect_info":
             # Extract data from message (simple keyword matching)
             # In production, use better NLP or structured forms
             app_data = state["application_data"]
@@ -331,16 +463,30 @@ async def chat_with_workflow(
             elif "self" in message_lower or "business" in message_lower:
                 app_data["employment_type"] = "self_employed"
             
+            employment_context = any(word in message_lower for word in ["experience", "working", "employed", "job"])
+
             # Extract employment years
-            if any(word in message_lower for word in ["experience", "working", "employed"]):
+            if employment_context:
                 exp_match = re.search(r'\b(\d{1,2})\b', message)
                 if exp_match:
                     app_data["employment_years"] = int(exp_match.group())
 
-            # Extract employment years from compact formats (e.g., 10yrs, 7 yr, 5years)
-            exp_compact_match = re.search(r'\b(\d{1,2})\s*(?:yrs?|years?)\b', message_lower)
-            if exp_compact_match:
-                app_data["employment_years"] = int(exp_compact_match.group(1))
+            # Extract tenure from compact year formats (e.g., 5yrs, 7 yr, 10years)
+            tenure_year_match = re.search(r'\b(\d{1,2})\s*(?:yrs?|years?)\b', message_lower)
+            if tenure_year_match:
+                years_value = int(tenure_year_match.group(1))
+                is_tenure_year_message = (
+                    any(word in message_lower for word in ["loan", "repay", "tenure", "duration", "term"]) or
+                    (app_data.get("requested_amount") is not None and not employment_context)
+                )
+                if is_tenure_year_message and not app_data.get("tenure_months"):
+                    app_data["tenure_months"] = years_value * 12
+                elif app_data.get("tenure_months") and not app_data.get("employment_years"):
+                    app_data["employment_years"] = years_value
+                elif employment_context or (
+                    app_data.get("requested_amount") in (None, "") and not app_data.get("employment_years")
+                ):
+                    app_data["employment_years"] = years_value
             
             # Extract city tier
             if "tier" in message_lower:
@@ -349,9 +495,13 @@ async def chat_with_workflow(
                     tier_match = re.search(r'\b([123])\b', message)
                 if tier_match:
                     app_data["city_tier"] = int(tier_match.group(1))
-            elif any(city in message_lower for city in ["mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad"]):
+            else:
+                short_tier_match = re.search(r'\bt\s*[- ]?\s*([123])\b', message_lower)
+                if short_tier_match:
+                    app_data["city_tier"] = int(short_tier_match.group(1))
+            if not app_data.get("city_tier") and any(city in message_lower for city in ["mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad"]):
                 app_data["city_tier"] = 1
-            elif any(city in message_lower for city in ["pune", "jaipur", "lucknow", "chandigarh", "kochi"]):
+            elif not app_data.get("city_tier") and any(city in message_lower for city in ["pune", "jaipur", "lucknow", "chandigarh", "kochi"]):
                 app_data["city_tier"] = 2
 
             # Fallback parse for mixed messages (e.g., "tier2 city, 40 moths, 100000")
@@ -379,7 +529,9 @@ async def chat_with_workflow(
             
             state["application_data"] = app_data
         
-        if state["stage"] in ["completed", "rejected"]:
+        if is_terminate_message or is_reset_message:
+            pass
+        elif state["stage"] in ["completed", "rejected"]:
             follow_up_reply = generate_follow_up_response(state, message)
             state["messages"].append({
                 "role": "assistant",
@@ -467,6 +619,10 @@ async def chat_with_workflow(
         
         # If loan was created, save to loans collection
         if result_state.get("loan_id") and not app_doc.get("loan_id"):
+            customer_identity = _extract_customer_identity({
+                "application_data": result_state.get("application_data", {}),
+                "kyc_data": result_state.get("kyc_data") or {},
+            })
             loan_doc = {
                 "loan_id": result_state["loan_id"],
                 "application_id": application_id,
@@ -483,6 +639,7 @@ async def chat_with_workflow(
                 "disbursement_amount": result_state["loan_offer"]["net_disbursement"],
                 "sanction_letter_url": f"/api/loans/{result_state['loan_id']}/sanction-letter",
                 "emi_schedule": result_state["emi_schedule"]["schedule"],
+                "customer_identity": customer_identity,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
@@ -510,6 +667,131 @@ async def chat_with_workflow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process message: {str(e)}"
         )
+
+
+@router.post("/applications/{application_id}/terminate")
+async def terminate_chat(
+    application_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Terminate and close current chat/application session."""
+    app_doc = await mongodb.loan_applications.find_one({
+        "application_id": application_id,
+        "user_id": current_user.user_id
+    })
+
+    if not app_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    messages = app_doc.get("conversation_messages", [])
+    messages.append({
+        "role": "assistant",
+        "content": "Chat terminated. This application is now closed. Use Reset Chat to start again.",
+        "timestamp": datetime.now().isoformat()
+    })
+
+    state_for_progress: LoanWorkflowState = {
+        "application_id": application_id,
+        "user_id": current_user.user_id,
+        "loan_type": app_doc["loan_type"],
+        "stage": "completed",
+        "application_data": app_doc.get("application_data", {}),
+        "kyc_data": app_doc.get("kyc_data"),
+        "credit_data": app_doc.get("credit_data"),
+        "policy_validation": app_doc.get("policy_validation"),
+        "affordability_result": app_doc.get("affordability_result"),
+        "risk_assessment": app_doc.get("risk_assessment"),
+        "loan_offer": app_doc.get("loan_offer"),
+        "emi_schedule": app_doc.get("emi_schedule"),
+        "loan_id": app_doc.get("loan_id"),
+        "sanction_letter_path": app_doc.get("sanction_letter_path"),
+        "messages": messages,
+        "is_eligible": False,
+        "is_accepted": False,
+        "rejection_reason": "Chat terminated by user",
+        "created_at": app_doc["created_at"],
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    await mongodb.loan_applications.update_one(
+        {"application_id": application_id, "user_id": current_user.user_id},
+        {
+            "$set": {
+                "workflow_stage": "completed",
+                "status": "DECLINED",
+                "is_eligible": False,
+                "is_accepted": False,
+                "rejection_reason": "Chat terminated by user",
+                "conversation_messages": messages,
+                "progress": _build_pipeline_progress(state_for_progress, "DECLINED"),
+                "updated_at": datetime.now().isoformat(),
+            }
+        }
+    )
+
+    return {"application_id": application_id, "status": "DECLINED", "stage": "completed", "message": "Chat terminated"}
+
+
+@router.post("/applications/{application_id}/reset")
+async def reset_chat(
+    application_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Reset current chat/application session and start collection from scratch."""
+    app_doc = await mongodb.loan_applications.find_one({
+        "application_id": application_id,
+        "user_id": current_user.user_id
+    })
+
+    if not app_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    reset_state = _build_initial_state(
+        application_id=application_id,
+        user_id=current_user.user_id,
+        loan_type=app_doc["loan_type"],
+        user_email=app_doc.get("owner_email") or current_user.email,
+    )
+    result_state = run_workflow_stepwise(reset_state)
+    result_state["messages"].append({
+        "role": "assistant",
+        "content": "Chat reset successfully. Let's start fresh.",
+        "timestamp": datetime.now().isoformat()
+    })
+
+    update_doc = {
+        "workflow_stage": result_state["stage"],
+        "application_data": result_state["application_data"],
+        "kyc_data": result_state.get("kyc_data"),
+        "credit_data": result_state.get("credit_data"),
+        "policy_validation": result_state.get("policy_validation"),
+        "affordability_result": result_state.get("affordability_result"),
+        "risk_assessment": result_state.get("risk_assessment"),
+        "loan_offer": result_state.get("loan_offer"),
+        "emi_schedule": result_state.get("emi_schedule"),
+        "loan_id": None,
+        "sanction_letter_path": None,
+        "conversation_messages": result_state["messages"],
+        "is_eligible": True,
+        "is_accepted": False,
+        "rejection_reason": None,
+        "status": "IN_PROGRESS",
+        "progress": _build_pipeline_progress(result_state, "IN_PROGRESS"),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    await mongodb.loan_applications.update_one(
+        {"application_id": application_id, "user_id": current_user.user_id},
+        {"$set": update_doc}
+    )
+
+    return {
+        "application_id": application_id,
+        "status": "IN_PROGRESS",
+        "stage": result_state["stage"],
+        "messages": result_state["messages"],
+        "progress": _build_pipeline_progress(result_state, "IN_PROGRESS")
+    }
 
 
 @router.get("/applications")
@@ -613,7 +895,34 @@ async def get_active_loans(
         
         loans = await cursor.to_list(length=50)
         
+        application_ids = [loan.get("application_id") for loan in loans if loan.get("application_id")]
+        application_map: Dict[str, Dict[str, Any]] = {}
+
+        if application_ids:
+            app_cursor = mongodb.loan_applications.find(
+                {
+                    "application_id": {"$in": application_ids},
+                    "user_id": current_user.user_id,
+                },
+                {
+                    "_id": 0,
+                    "application_id": 1,
+                    "application_data": 1,
+                    "kyc_data": 1,
+                },
+            )
+            app_docs = await app_cursor.to_list(length=len(application_ids))
+            application_map = {
+                app_doc["application_id"]: app_doc
+                for app_doc in app_docs
+                if app_doc.get("application_id")
+            }
+
         for loan in loans:
+            app_doc = application_map.get(loan.get("application_id"))
+            loan["customer_identity"] = (
+                loan.get("customer_identity") or _extract_customer_identity(app_doc)
+            )
             loan.pop("_id", None)
         
         logger.info(f"Retrieved {len(loans)} active loans for user {current_user.user_id}")
@@ -655,6 +964,21 @@ async def get_loan_details(
                 detail="Loan not found"
             )
         
+        application_id = loan_doc.get("application_id")
+        if not loan_doc.get("customer_identity") and application_id:
+            app_doc = await mongodb.loan_applications.find_one(
+                {
+                    "application_id": application_id,
+                    "user_id": current_user.user_id,
+                },
+                {
+                    "_id": 0,
+                    "application_data": 1,
+                    "kyc_data": 1,
+                },
+            )
+            loan_doc["customer_identity"] = _extract_customer_identity(app_doc)
+
         loan_doc.pop("_id", None)
         
         return loan_doc

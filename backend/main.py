@@ -67,26 +67,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Redis connection failed: {e}")
         raise
     
-    # Load mock bureau data
+    # Load fixed mock registries (identity + bureau)
     try:
-        import json, os
+        from engines.kyc_engine import kyc_engine
         from engines.bureau_engine import bureau_engine
-        seed_path = os.path.join(os.path.dirname(__file__), "mock_data", "seeds", "credit_bureau_sample.json")
-        if os.path.exists(seed_path):
-            with open(seed_path, "r") as f:
-                seed_records = json.load(f)
-            # seed file is a list of records; convert to PAN-keyed dict
-            if isinstance(seed_records, list):
-                mock_data = {r["pan"]: r for r in seed_records if "pan" in r}
-            else:
-                mock_data = seed_records
-            bureau_engine.load_mock_data(mock_data)
-            logger.info(f"✅ Bureau mock data loaded: {len(mock_data)} seed records")
-        else:
-            bureau_engine.load_mock_data({})
-            logger.info("✅ Bureau mock data initialized (will generate on-the-fly)")
+
+        identity_records = kyc_engine.load_identity_registry()
+        bureau_records = bureau_engine.load_mock_dataset()
+
+        logger.info(f"✅ Identity mock registry loaded: {len(identity_records)} users")
+        logger.info(f"✅ Bureau mock registry loaded: {len(bureau_records)} PAN records")
     except Exception as e:
-        logger.warning(f"⚠️  Could not load bureau data: {str(e)} (will generate on-the-fly)")
+        logger.error(f"❌ Could not load strict mock registries: {str(e)}")
+        raise
     
     logger.info("=" * 70)
     logger.info(f"🌍 Environment: {settings.ENVIRONMENT}")

@@ -21,6 +21,37 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+const formatLoanTypeLabel = (loanType = '') =>
+  loanType
+    .replace('_loan', '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+const parseDate = (value) => {
+  const parsed = new Date(value || '');
+  return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
+};
+
+const identityFromApplication = (app = {}) => {
+  const appData = app.application_data || {};
+  const kycData = app.kyc_data || {};
+  const aadhaarData = kycData.aadhaar || {};
+  const panData = kycData.pan || {};
+  const fullName =
+    kycData.applicant_name ||
+    kycData.full_name ||
+    kycData.name ||
+    appData.full_name;
+
+  return {
+    fullName,
+    mobile: appData.mobile || kycData.applicant_mobile || kycData.applicant_mobile_masked,
+    dob: kycData.applicant_dob || appData.dob,
+    aadhaar: appData.aadhaar || aadhaarData.number || aadhaarData.masked,
+    pan: appData.pan || panData.number || panData.masked,
+  };
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const { user, clearAuth, isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
@@ -97,6 +128,48 @@ export default function Dashboard() {
     nextEMI: activeLoans[0]?.next_emi_amount || 0,
     pendingApplications: applications.filter((app) => app.status === 'IN_PROGRESS').length,
   };
+
+  const uniqueApplications = Object.values(
+    applications.reduce((acc, app) => {
+      const existing = acc[app.application_id];
+      if (!existing || parseDate(app.updated_at) > parseDate(existing.updated_at)) {
+        acc[app.application_id] = app;
+      }
+      return acc;
+    }, {})
+  ).sort((a, b) => parseDate(b.updated_at) - parseDate(a.updated_at));
+
+  const activeLoanIds = new Set(activeLoans.map((loan) => loan.application_id).filter(Boolean));
+
+  const loanRequests = [
+    ...activeLoans.map((loan) => ({
+      id: `loan_${loan.loan_id}`,
+      kind: 'active_loan',
+      loanId: loan.loan_id,
+      applicationId: loan.application_id,
+      title: `${formatLoanTypeLabel(loan.loan_type)} Loan`,
+      amount: loan.principal,
+      interestRate: loan.interest_rate,
+      emi: loan.monthly_emi,
+      dueDate: loan.next_emi_date,
+      identity: loan.customer_identity || {},
+      status: 'ACTIVE',
+      createdAt: loan.created_at,
+    })),
+    ...uniqueApplications
+      .filter((app) => ['DECLINED', 'REJECTED'].includes(app.status) && !activeLoanIds.has(app.application_id))
+      .map((app) => ({
+        id: `declined_${app.application_id}`,
+        kind: 'declined_application',
+        applicationId: app.application_id,
+        loanType: app.loan_type,
+        title: `${formatLoanTypeLabel(app.loan_type)} Request`,
+        amount: app.application_data?.requested_amount,
+        identity: identityFromApplication(app),
+        status: app.status,
+        createdAt: app.created_at,
+      })),
+  ].sort((a, b) => parseDate(b.createdAt) - parseDate(a.createdAt));
 
   if (!isAuthInitialized || !isAuthenticated) return null;
 
@@ -208,48 +281,103 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Active Loans */}
-        {activeLoans.length > 0 && (
+        {/* Loan Requests */}
+        {loanRequests.length > 0 && (
           <section className="mb-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Active Loans</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Loan Requests</h2>
             <div className="space-y-4">
-              {activeLoans.map((loan) => (
+              {loanRequests.map((request) => (
                 <Card
-                  key={loan.loan_id}
+                  key={request.id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => router.push(`/loans/${loan.loan_id}`)}
+                  onClick={() => {
+                    if (request.kind === 'active_loan') {
+                      router.push(`/loans/${request.loanId}`);
+                      return;
+                    }
+                    router.push(`/apply/${request.loanType}?applicationId=${request.applicationId}`);
+                  }}
                 >
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-gray-900 capitalize">
-                            {loan.loan_type} Loan
+                            {request.title}
                           </h3>
-                          <Badge variant="success">Active</Badge>
+                          <Badge
+                            className={
+                              request.status === 'ACTIVE'
+                                ? getStatusColor('active')
+                                : getStatusColor('rejected')
+                            }
+                          >
+                            {request.status === 'ACTIVE' ? 'ACTIVE' : 'DECLINED'}
+                          </Badge>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        {request.kind === 'active_loan' ? (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                              <p className="text-gray-600">Amount</p>
+                              <p className="font-medium text-gray-900">
+                                {formatCurrency(request.amount)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Interest Rate</p>
+                              <p className="font-medium text-gray-900">{request.interestRate}% p.a.</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">EMI</p>
+                              <p className="font-medium text-gray-900">
+                                {formatCurrency(request.emi)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Next Due</p>
+                              <p className="font-medium text-gray-900">
+                                {formatDate(request.dueDate)}
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <p className="text-gray-600">Requested Amount</p>
+                              <p className="font-medium text-gray-900">
+                                {formatCurrency(request.amount || 0)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Applied On</p>
+                              <p className="font-medium text-gray-900">{formatDate(request.createdAt)}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Action</p>
+                              <p className="font-medium text-gray-900">Open chat follow-up</p>
+                            </div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t border-gray-100">
                           <div>
-                            <p className="text-gray-600">Amount</p>
-                            <p className="font-medium text-gray-900">
-                              {formatCurrency(loan.principal)}
-                            </p>
+                            <p className="text-gray-600">Applicant</p>
+                            <p className="font-medium text-gray-900">{request.identity?.fullName || 'N/A'}</p>
                           </div>
                           <div>
-                            <p className="text-gray-600">Interest Rate</p>
-                            <p className="font-medium text-gray-900">{loan.interest_rate}% p.a.</p>
+                            <p className="text-gray-600">Phone</p>
+                            <p className="font-medium text-gray-900">{request.identity?.mobile || 'N/A'}</p>
                           </div>
                           <div>
-                            <p className="text-gray-600">EMI</p>
-                            <p className="font-medium text-gray-900">
-                              {formatCurrency(loan.monthly_emi)}
-                            </p>
+                            <p className="text-gray-600">DOB</p>
+                            <p className="font-medium text-gray-900">{request.identity?.dob || 'N/A'}</p>
                           </div>
                           <div>
-                            <p className="text-gray-600">Next Due</p>
-                            <p className="font-medium text-gray-900">
-                              {formatDate(loan.next_emi_date)}
-                            </p>
+                            <p className="text-gray-600">PAN</p>
+                            <p className="font-medium text-gray-900">{request.identity?.pan || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Aadhaar</p>
+                            <p className="font-medium text-gray-900">{request.identity?.aadhaar || 'N/A'}</p>
                           </div>
                         </div>
                       </div>
@@ -261,12 +389,15 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* Recent Applications */}
-        {applications.length > 0 && (
+        {/* Recent Chats */}
+        {uniqueApplications.length > 0 && (
           <section>
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Recent Applications</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Recent Chats</h2>
             <div className="space-y-4">
-              {applications.slice(0, 5).map((app) => (
+              {uniqueApplications.slice(0, 8).map((app) => (
+                (() => {
+                  const identity = identityFromApplication(app);
+                  return (
                 <Card
                   key={app.application_id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
@@ -276,11 +407,33 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="font-medium text-gray-900 capitalize mb-1">
-                          {app.loan_type} Loan Application
+                          {formatLoanTypeLabel(app.loan_type)} Chat
                         </h3>
-                        <p className="text-sm text-gray-600">
-                          Applied on {formatDate(app.created_at)}
-                        </p>
+                        <p className="text-sm text-gray-600">Application ID: {app.application_id.slice(0, 8)}...</p>
+                        <p className="text-sm text-gray-600">Last updated: {formatDate(app.updated_at || app.created_at)}</p>
+                        <p className="text-xs text-primary-700 mt-1">Open to continue from where you left off</p>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t border-gray-100">
+                          <div>
+                            <p className="text-gray-600">Applicant</p>
+                            <p className="font-medium text-gray-900">{identity.fullName || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Phone</p>
+                            <p className="font-medium text-gray-900">{identity.mobile || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">DOB</p>
+                            <p className="font-medium text-gray-900">{identity.dob || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">PAN</p>
+                            <p className="font-medium text-gray-900">{identity.pan || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Aadhaar</p>
+                            <p className="font-medium text-gray-900">{identity.aadhaar || 'N/A'}</p>
+                          </div>
+                        </div>
                       </div>
                       <Badge className={getStatusColor(app.status)}>
                         {app.status.replace('_', ' ')}
@@ -288,6 +441,8 @@ export default function Dashboard() {
                     </div>
                   </CardContent>
                 </Card>
+                  );
+                })()
               ))}
             </div>
           </section>

@@ -62,6 +62,8 @@ export const loansAPI = {
   applyForLoan: (loanType) => api.post('/loans/apply', null, { params: { loan_type: loanType } }),
   sendMessage: (applicationId, message) => 
     api.post(`/loans/applications/${applicationId}/chat`, { message }),
+  terminateChat: (applicationId) => api.post(`/loans/applications/${applicationId}/terminate`),
+  resetChat: (applicationId) => api.post(`/loans/applications/${applicationId}/reset`),
   getApplications: (status) => api.get('/loans/applications', { params: status ? { status } : {} }),
   getApplication: (applicationId) => api.get(`/loans/applications/${applicationId}`),
   getActiveLoans: () => api.get('/loans/active'),

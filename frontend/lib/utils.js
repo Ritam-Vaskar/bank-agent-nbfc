@@ -14,21 +14,31 @@ export function formatCurrency(amount) {
 }
 
 export function formatDate(date) {
+  if (date === null || date === undefined || date === '') return '-';
+
+  const parsedDate = new Date(date);
+  if (Number.isNaN(parsedDate.getTime())) return '-';
+
   return new Intl.DateTimeFormat('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
-  }).format(new Date(date));
+  }).format(parsedDate);
 }
 
 export function formatDateTime(date) {
+  if (date === null || date === undefined || date === '') return '-';
+
+  const parsedDate = new Date(date);
+  if (Number.isNaN(parsedDate.getTime())) return '-';
+
   return new Intl.DateTimeFormat('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(date));
+  }).format(parsedDate);
 }
 
 export function getStatusColor(status) {

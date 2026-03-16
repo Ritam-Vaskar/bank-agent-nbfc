@@ -13,6 +13,7 @@ from auth.dependencies import get_current_user
 from models.user import User
 from models.loan_application import LoanApplication, ApplicationData, ConversationMessage, ChatMessage
 from models.loan import Loan
+from engines.kyc_engine import kyc_engine
 from database import mongodb, redis_client
 from workflows.loan_graph import (
     LoanWorkflowState,
@@ -118,6 +119,65 @@ def _build_initial_state(
         "rejection_reason": None,
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _first_non_empty(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip():
+                return value.strip()
+            continue
+        return value
+    return None
+
+
+def _lookup_registry_identity(aadhaar: Any, pan: Any) -> Dict[str, Any]:
+    aadhaar_key = str(aadhaar or "").replace("-", "").replace(" ", "").strip()
+    pan_key = str(pan or "").upper().strip()
+
+    if aadhaar_key and aadhaar_key in kyc_engine.identity_by_aadhaar:
+        return kyc_engine.identity_by_aadhaar.get(aadhaar_key) or {}
+    if pan_key and pan_key in kyc_engine.identity_by_pan:
+        return kyc_engine.identity_by_pan.get(pan_key) or {}
+    return {}
+
+
+def _extract_customer_identity(app_doc: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not app_doc:
+        return {}
+
+    app_data = app_doc.get("application_data") or {}
+    kyc_data = app_doc.get("kyc_data") or {}
+    aadhaar_data = kyc_data.get("aadhaar") or {}
+    pan_data = kyc_data.get("pan") or {}
+    registry_data = _lookup_registry_identity(
+        app_data.get("aadhaar") or aadhaar_data.get("number"),
+        app_data.get("pan") or pan_data.get("number"),
+    )
+
+    aadhaar_value = app_data.get("aadhaar") or aadhaar_data.get("number") or aadhaar_data.get("masked")
+    pan_value = app_data.get("pan") or pan_data.get("number") or pan_data.get("masked")
+    mobile_value = app_data.get("mobile") or kyc_data.get("applicant_mobile") or kyc_data.get("applicant_mobile_masked")
+
+    return {
+        "full_name": _first_non_empty(
+            kyc_data.get("applicant_name"),
+            kyc_data.get("full_name"),
+            kyc_data.get("name"),
+            app_data.get("full_name"),
+            registry_data.get("full_name"),
+        ),
+        "mobile": _first_non_empty(mobile_value, registry_data.get("mobile")),
+        "dob": _first_non_empty(kyc_data.get("applicant_dob"), app_data.get("dob"), registry_data.get("dob")),
+        "aadhaar": _first_non_empty(aadhaar_value, registry_data.get("aadhaar")),
+        "aadhaar_masked": aadhaar_data.get("masked"),
+        "pan": _first_non_empty(pan_value, registry_data.get("pan")),
+        "pan_masked": pan_data.get("masked"),
+        "city_tier": _first_non_empty(app_data.get("city_tier"), registry_data.get("city_tier")),
+        "kyc_status": kyc_data.get("kyc_status"),
     }
 
 
@@ -559,6 +619,10 @@ async def chat_with_workflow(
         
         # If loan was created, save to loans collection
         if result_state.get("loan_id") and not app_doc.get("loan_id"):
+            customer_identity = _extract_customer_identity({
+                "application_data": result_state.get("application_data", {}),
+                "kyc_data": result_state.get("kyc_data") or {},
+            })
             loan_doc = {
                 "loan_id": result_state["loan_id"],
                 "application_id": application_id,
@@ -575,6 +639,7 @@ async def chat_with_workflow(
                 "disbursement_amount": result_state["loan_offer"]["net_disbursement"],
                 "sanction_letter_url": f"/api/loans/{result_state['loan_id']}/sanction-letter",
                 "emi_schedule": result_state["emi_schedule"]["schedule"],
+                "customer_identity": customer_identity,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
@@ -830,7 +895,34 @@ async def get_active_loans(
         
         loans = await cursor.to_list(length=50)
         
+        application_ids = [loan.get("application_id") for loan in loans if loan.get("application_id")]
+        application_map: Dict[str, Dict[str, Any]] = {}
+
+        if application_ids:
+            app_cursor = mongodb.loan_applications.find(
+                {
+                    "application_id": {"$in": application_ids},
+                    "user_id": current_user.user_id,
+                },
+                {
+                    "_id": 0,
+                    "application_id": 1,
+                    "application_data": 1,
+                    "kyc_data": 1,
+                },
+            )
+            app_docs = await app_cursor.to_list(length=len(application_ids))
+            application_map = {
+                app_doc["application_id"]: app_doc
+                for app_doc in app_docs
+                if app_doc.get("application_id")
+            }
+
         for loan in loans:
+            app_doc = application_map.get(loan.get("application_id"))
+            loan["customer_identity"] = (
+                loan.get("customer_identity") or _extract_customer_identity(app_doc)
+            )
             loan.pop("_id", None)
         
         logger.info(f"Retrieved {len(loans)} active loans for user {current_user.user_id}")
@@ -872,6 +964,21 @@ async def get_loan_details(
                 detail="Loan not found"
             )
         
+        application_id = loan_doc.get("application_id")
+        if not loan_doc.get("customer_identity") and application_id:
+            app_doc = await mongodb.loan_applications.find_one(
+                {
+                    "application_id": application_id,
+                    "user_id": current_user.user_id,
+                },
+                {
+                    "_id": 0,
+                    "application_data": 1,
+                    "kyc_data": 1,
+                },
+            )
+            loan_doc["customer_identity"] = _extract_customer_identity(app_doc)
+
         loan_doc.pop("_id", None)
         
         return loan_doc

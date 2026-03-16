@@ -93,6 +93,7 @@ export default function LoanDetailsPage() {
   const totalEMIs = emiSchedule.length;
   const progressPercent = totalEMIs > 0 ? (paidEMIs / totalEMIs) * 100 : 0;
   const nextPendingEMI = emiSchedule.find((emi) => emi.status === 'PENDING');
+  const identity = loan.customer_identity || {};
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -170,6 +171,37 @@ export default function LoanDetailsPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Repayment Progress */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Customer Identity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-sm">
+              <div>
+                <p className="text-gray-600">Applicant Name</p>
+                <p className="font-semibold text-gray-900">{identity.full_name || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Phone Number</p>
+                <p className="font-semibold text-gray-900">{identity.mobile || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Date of Birth</p>
+                <p className="font-semibold text-gray-900">{identity.dob || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">PAN</p>
+                <p className="font-semibold text-gray-900">{identity.pan || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Aadhaar</p>
+                <p className="font-semibold text-gray-900">{identity.aadhaar || 'N/A'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Repayment Progress */}
         <Card className="mb-8">

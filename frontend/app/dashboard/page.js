@@ -32,6 +32,26 @@ const parseDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
 };
 
+const identityFromApplication = (app = {}) => {
+  const appData = app.application_data || {};
+  const kycData = app.kyc_data || {};
+  const aadhaarData = kycData.aadhaar || {};
+  const panData = kycData.pan || {};
+  const fullName =
+    kycData.applicant_name ||
+    kycData.full_name ||
+    kycData.name ||
+    appData.full_name;
+
+  return {
+    fullName,
+    mobile: appData.mobile || kycData.applicant_mobile || kycData.applicant_mobile_masked,
+    dob: kycData.applicant_dob || appData.dob,
+    aadhaar: appData.aadhaar || aadhaarData.number || aadhaarData.masked,
+    pan: appData.pan || panData.number || panData.masked,
+  };
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const { user, clearAuth, isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
@@ -132,6 +152,7 @@ export default function Dashboard() {
       interestRate: loan.interest_rate,
       emi: loan.monthly_emi,
       dueDate: loan.next_emi_date,
+      identity: loan.customer_identity || {},
       status: 'ACTIVE',
       createdAt: loan.created_at,
     })),
@@ -144,6 +165,7 @@ export default function Dashboard() {
         loanType: app.loan_type,
         title: `${formatLoanTypeLabel(app.loan_type)} Request`,
         amount: app.application_data?.requested_amount,
+        identity: identityFromApplication(app),
         status: app.status,
         createdAt: app.created_at,
       })),
@@ -336,6 +358,28 @@ export default function Dashboard() {
                             </div>
                           </div>
                         )}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t border-gray-100">
+                          <div>
+                            <p className="text-gray-600">Applicant</p>
+                            <p className="font-medium text-gray-900">{request.identity?.fullName || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Phone</p>
+                            <p className="font-medium text-gray-900">{request.identity?.mobile || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">DOB</p>
+                            <p className="font-medium text-gray-900">{request.identity?.dob || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">PAN</p>
+                            <p className="font-medium text-gray-900">{request.identity?.pan || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Aadhaar</p>
+                            <p className="font-medium text-gray-900">{request.identity?.aadhaar || 'N/A'}</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -351,6 +395,9 @@ export default function Dashboard() {
             <h2 className="text-xl font-bold text-gray-900 mb-4">Recent Chats</h2>
             <div className="space-y-4">
               {uniqueApplications.slice(0, 8).map((app) => (
+                (() => {
+                  const identity = identityFromApplication(app);
+                  return (
                 <Card
                   key={app.application_id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
@@ -365,6 +412,28 @@ export default function Dashboard() {
                         <p className="text-sm text-gray-600">Application ID: {app.application_id.slice(0, 8)}...</p>
                         <p className="text-sm text-gray-600">Last updated: {formatDate(app.updated_at || app.created_at)}</p>
                         <p className="text-xs text-primary-700 mt-1">Open to continue from where you left off</p>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t border-gray-100">
+                          <div>
+                            <p className="text-gray-600">Applicant</p>
+                            <p className="font-medium text-gray-900">{identity.fullName || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Phone</p>
+                            <p className="font-medium text-gray-900">{identity.mobile || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">DOB</p>
+                            <p className="font-medium text-gray-900">{identity.dob || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">PAN</p>
+                            <p className="font-medium text-gray-900">{identity.pan || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Aadhaar</p>
+                            <p className="font-medium text-gray-900">{identity.aadhaar || 'N/A'}</p>
+                          </div>
+                        </div>
                       </div>
                       <Badge className={getStatusColor(app.status)}>
                         {app.status.replace('_', ' ')}
@@ -372,6 +441,8 @@ export default function Dashboard() {
                     </div>
                   </CardContent>
                 </Card>
+                  );
+                })()
               ))}
             </div>
           </section>

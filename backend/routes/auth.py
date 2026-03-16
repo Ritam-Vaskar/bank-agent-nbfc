@@ -27,12 +27,19 @@ async def request_otp(request: OTPRequest):
     """
     try:
         # Generate and store OTP (also sends it in development mode)
-        otp = await otp_service.create_and_store_otp(request.email)
+        otp_result = await otp_service.create_and_store_otp(request.email)
+
+        note = (
+            "OTP sent via email."
+            if otp_result.get("email_sent")
+            else otp_result.get("fallback_reason") or "OTP fallback to console logs."
+        )
         
         return {
             "message": f"OTP sent to {request.email}",
             "expires_in_minutes": 5,
-            "note": "Check console logs in development mode"
+            "email_sent": bool(otp_result.get("email_sent")),
+            "note": note,
         }
         
     except Exception as e:

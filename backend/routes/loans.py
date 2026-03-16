@@ -30,6 +30,8 @@ ACCEPTANCE_KEYWORDS = ("accept", "yes", "agree", "confirm")
 REJECTION_KEYWORDS = ("reject", "no", "decline", "cancel")
 AUTOFILL_KEYWORDS = ("auto", "autofill", "demo", "autofill demo")
 CONTINUE_KEYWORDS = ("ok", "okay", "continue", "next", "start", "initiate")
+TERMINATE_KEYWORDS = ("terminate", "end chat", "end and terminate chat", "close chat", "stop chat")
+RESET_KEYWORDS = ("reset", "reset chat", "restart", "start over", "new chat")
 STEP_CONFIRMATION_STAGES = {
     "verify_kyc",
     "fetch_credit",
@@ -83,6 +85,42 @@ def _normalize_loan_type(loan_type: str) -> str:
     return f"{loan_type}_loan"
 
 
+def _build_initial_state(
+    application_id: str,
+    user_id: str,
+    loan_type: str,
+    user_email: str | None = None,
+) -> LoanWorkflowState:
+    application_data = {
+        "application_id": application_id,
+    }
+    if user_email:
+        application_data["email"] = user_email
+
+    return {
+        "application_id": application_id,
+        "user_id": user_id,
+        "loan_type": loan_type,
+        "stage": "init",
+        "application_data": application_data,
+        "kyc_data": None,
+        "credit_data": None,
+        "policy_validation": None,
+        "affordability_result": None,
+        "risk_assessment": None,
+        "loan_offer": None,
+        "emi_schedule": None,
+        "loan_id": None,
+        "sanction_letter_path": None,
+        "messages": [],
+        "is_eligible": True,
+        "is_accepted": False,
+        "rejection_reason": None,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
 @router.post("/apply")
 async def start_loan_application(
     loan_type: str | None = None,
@@ -113,28 +151,12 @@ async def start_loan_application(
         application_id = str(uuid.uuid4())
         
         # Initialize workflow state
-        initial_state: LoanWorkflowState = {
-            "application_id": application_id,
-            "user_id": current_user.user_id,
-            "loan_type": loan_type,
-            "stage": "init",
-            "application_data": {},
-            "kyc_data": None,
-            "credit_data": None,
-            "policy_validation": None,
-            "affordability_result": None,
-            "risk_assessment": None,
-            "loan_offer": None,
-            "emi_schedule": None,
-            "loan_id": None,
-            "sanction_letter_path": None,
-            "messages": [],
-            "is_eligible": True,
-            "is_accepted": False,
-            "rejection_reason": None,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
+        initial_state: LoanWorkflowState = _build_initial_state(
+            application_id=application_id,
+            user_id=current_user.user_id,
+            loan_type=loan_type,
+            user_email=current_user.email,
+        )
         
         # Run first two nodes (init + collect_info greeting)
         # Use recursion_limit to prevent infinite loops
@@ -146,6 +168,7 @@ async def start_loan_application(
             "user_id": current_user.user_id,
             "loan_type": loan_type,
             "status": "IN_PROGRESS",
+            "owner_email": current_user.email,
             "workflow_stage": result_state["stage"],
             "application_data": result_state["application_data"],
             "conversation_messages": result_state["messages"],
@@ -233,6 +256,9 @@ async def chat_with_workflow(
             "created_at": app_doc["created_at"],
             "updated_at": datetime.now().isoformat()
         }
+
+        state["application_data"].setdefault("application_id", application_id)
+        state["application_data"].setdefault("email", app_doc.get("owner_email") or current_user.email)
         
         # Add user message to state
         state["messages"].append({
@@ -245,9 +271,37 @@ async def chat_with_workflow(
         is_acceptance_message = _has_intent(message, ACCEPTANCE_KEYWORDS)
         is_rejection_message = _has_intent(message, REJECTION_KEYWORDS)
         is_continue_message = _has_intent(message, CONTINUE_KEYWORDS)
+        is_terminate_message = _has_intent(message, TERMINATE_KEYWORDS)
+        is_reset_message = _has_intent(message, RESET_KEYWORDS)
+
+        if is_terminate_message:
+            state["stage"] = "completed"
+            state["is_eligible"] = False
+            state["is_accepted"] = False
+            state["rejection_reason"] = "Chat terminated by user"
+            state["updated_at"] = datetime.now().isoformat()
+            state["messages"].append({
+                "role": "assistant",
+                "content": "Chat terminated. This application is now closed. Use Reset Chat to start again.",
+                "timestamp": datetime.now().isoformat()
+            })
+            result_state = state
+        elif is_reset_message:
+            reset_state = _build_initial_state(
+                application_id=application_id,
+                user_id=current_user.user_id,
+                loan_type=app_doc["loan_type"],
+                user_email=app_doc.get("owner_email") or current_user.email,
+            )
+            result_state = run_workflow_stepwise(reset_state)
+            result_state["messages"].append({
+                "role": "assistant",
+                "content": "Chat reset successfully. Let's start fresh.",
+                "timestamp": datetime.now().isoformat()
+            })
         
         # Parse application data if in collection stage
-        if state["stage"] == "collect_info":
+        if not is_terminate_message and not is_reset_message and state["stage"] == "collect_info":
             # Extract data from message (simple keyword matching)
             # In production, use better NLP or structured forms
             app_data = state["application_data"]
@@ -415,7 +469,9 @@ async def chat_with_workflow(
             
             state["application_data"] = app_data
         
-        if state["stage"] in ["completed", "rejected"]:
+        if is_terminate_message or is_reset_message:
+            pass
+        elif state["stage"] in ["completed", "rejected"]:
             follow_up_reply = generate_follow_up_response(state, message)
             state["messages"].append({
                 "role": "assistant",
@@ -546,6 +602,131 @@ async def chat_with_workflow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process message: {str(e)}"
         )
+
+
+@router.post("/applications/{application_id}/terminate")
+async def terminate_chat(
+    application_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Terminate and close current chat/application session."""
+    app_doc = await mongodb.loan_applications.find_one({
+        "application_id": application_id,
+        "user_id": current_user.user_id
+    })
+
+    if not app_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    messages = app_doc.get("conversation_messages", [])
+    messages.append({
+        "role": "assistant",
+        "content": "Chat terminated. This application is now closed. Use Reset Chat to start again.",
+        "timestamp": datetime.now().isoformat()
+    })
+
+    state_for_progress: LoanWorkflowState = {
+        "application_id": application_id,
+        "user_id": current_user.user_id,
+        "loan_type": app_doc["loan_type"],
+        "stage": "completed",
+        "application_data": app_doc.get("application_data", {}),
+        "kyc_data": app_doc.get("kyc_data"),
+        "credit_data": app_doc.get("credit_data"),
+        "policy_validation": app_doc.get("policy_validation"),
+        "affordability_result": app_doc.get("affordability_result"),
+        "risk_assessment": app_doc.get("risk_assessment"),
+        "loan_offer": app_doc.get("loan_offer"),
+        "emi_schedule": app_doc.get("emi_schedule"),
+        "loan_id": app_doc.get("loan_id"),
+        "sanction_letter_path": app_doc.get("sanction_letter_path"),
+        "messages": messages,
+        "is_eligible": False,
+        "is_accepted": False,
+        "rejection_reason": "Chat terminated by user",
+        "created_at": app_doc["created_at"],
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    await mongodb.loan_applications.update_one(
+        {"application_id": application_id, "user_id": current_user.user_id},
+        {
+            "$set": {
+                "workflow_stage": "completed",
+                "status": "DECLINED",
+                "is_eligible": False,
+                "is_accepted": False,
+                "rejection_reason": "Chat terminated by user",
+                "conversation_messages": messages,
+                "progress": _build_pipeline_progress(state_for_progress, "DECLINED"),
+                "updated_at": datetime.now().isoformat(),
+            }
+        }
+    )
+
+    return {"application_id": application_id, "status": "DECLINED", "stage": "completed", "message": "Chat terminated"}
+
+
+@router.post("/applications/{application_id}/reset")
+async def reset_chat(
+    application_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Reset current chat/application session and start collection from scratch."""
+    app_doc = await mongodb.loan_applications.find_one({
+        "application_id": application_id,
+        "user_id": current_user.user_id
+    })
+
+    if not app_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    reset_state = _build_initial_state(
+        application_id=application_id,
+        user_id=current_user.user_id,
+        loan_type=app_doc["loan_type"],
+        user_email=app_doc.get("owner_email") or current_user.email,
+    )
+    result_state = run_workflow_stepwise(reset_state)
+    result_state["messages"].append({
+        "role": "assistant",
+        "content": "Chat reset successfully. Let's start fresh.",
+        "timestamp": datetime.now().isoformat()
+    })
+
+    update_doc = {
+        "workflow_stage": result_state["stage"],
+        "application_data": result_state["application_data"],
+        "kyc_data": result_state.get("kyc_data"),
+        "credit_data": result_state.get("credit_data"),
+        "policy_validation": result_state.get("policy_validation"),
+        "affordability_result": result_state.get("affordability_result"),
+        "risk_assessment": result_state.get("risk_assessment"),
+        "loan_offer": result_state.get("loan_offer"),
+        "emi_schedule": result_state.get("emi_schedule"),
+        "loan_id": None,
+        "sanction_letter_path": None,
+        "conversation_messages": result_state["messages"],
+        "is_eligible": True,
+        "is_accepted": False,
+        "rejection_reason": None,
+        "status": "IN_PROGRESS",
+        "progress": _build_pipeline_progress(result_state, "IN_PROGRESS"),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    await mongodb.loan_applications.update_one(
+        {"application_id": application_id, "user_id": current_user.user_id},
+        {"$set": update_doc}
+    )
+
+    return {
+        "application_id": application_id,
+        "status": "IN_PROGRESS",
+        "stage": result_state["stage"],
+        "messages": result_state["messages"],
+        "progress": _build_pipeline_progress(result_state, "IN_PROGRESS")
+    }
 
 
 @router.get("/applications")

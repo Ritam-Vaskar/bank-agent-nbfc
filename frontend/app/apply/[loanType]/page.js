@@ -309,6 +309,69 @@ export default function ApplyPage() {
     await handleSendMessage('I do not want to proceed with this loan offer.');
   };
 
+  const handleTerminateChat = async () => {
+    if (!currentApplicationId || isLoading) return;
+    const shouldTerminate = typeof window === 'undefined' ? true : window.confirm('Terminate this chat and close the current application?');
+    if (!shouldTerminate) return;
+
+    setLoading(true);
+    try {
+      await loansAPI.terminateChat(currentApplicationId);
+      const refreshed = await loansAPI.getApplication(currentApplicationId);
+      const application = refreshed.data;
+      setApplicationSnapshot({
+        applicationId: application.application_id,
+        loanType: application.loan_type,
+        messages: (application.conversation_messages || []).map((m) => ({
+          ...m,
+          timestamp: m.timestamp || new Date().toISOString(),
+        })),
+        stage: application.workflow_stage,
+        status: application.status,
+        progress: application.progress || null,
+        loanOffer: application.loan_offer || null,
+        loanId: application.loan_id || null,
+        isCompleted: ['completed', 'rejected'].includes(application.workflow_stage),
+      });
+      toast.success('Chat terminated successfully.');
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || 'Failed to terminate chat');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetChat = async () => {
+    if (!currentApplicationId || isLoading) return;
+    const shouldReset = typeof window === 'undefined' ? true : window.confirm('Reset this chat and start the same application from scratch?');
+    if (!shouldReset) return;
+
+    setLoading(true);
+    try {
+      const response = await loansAPI.resetChat(currentApplicationId);
+      const { messages: backendMessages, stage, status, progress } = response.data;
+      setApplicationSnapshot({
+        applicationId: currentApplicationId,
+        loanType,
+        messages: (backendMessages || []).map((m) => ({
+          ...m,
+          timestamp: m.timestamp || new Date().toISOString(),
+        })),
+        stage,
+        status,
+        progress,
+        loanOffer: null,
+        loanId: null,
+        isCompleted: false,
+      });
+      toast.success('Chat reset successfully.');
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || 'Failed to reset chat');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isRejected = applicationStatus === 'DECLINED' || workflowStage === 'rejected';
   const isProcessComplete = isCompleted || workflowStage === 'completed' || isRejected;
   const showOfferActions = loanOffer && workflowStage === 'await_acceptance' && !isLoading;
@@ -611,6 +674,24 @@ export default function ApplyPage() {
                     ? 'Agent thinking…'
                     : 'AI Powered'}
                 </Badge>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetChat}
+                  disabled={!currentApplicationId || isLoading}
+                >
+                  Reset Chat
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTerminateChat}
+                  disabled={!currentApplicationId || isLoading}
+                >
+                  Terminate Chat
+                </Button>
               </div>
             </CardHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">

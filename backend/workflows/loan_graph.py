@@ -719,12 +719,24 @@ def generate_sanction_node(state: LoanWorkflowState) -> LoanWorkflowState:
     """
     try:
         from workflows.tools import generate_sanction_letter
+
+        application_data_for_pdf = {
+            **(state.get("application_data") or {}),
+            "application_id": state.get("application_id"),
+        }
+        kyc_data = state.get("kyc_data") or {}
+        applicant_name = kyc_data.get("applicant_name")
+        applicant_email = application_data_for_pdf.get("email")
         
         result = generate_sanction_letter.invoke({
             "loan_id": state["loan_id"],
-            "application_data": state["application_data"],
+            "application_data": application_data_for_pdf,
             "offer_data": state["loan_offer"],
-            "user_data": {"user_id": state["user_id"], "email": state["application_data"].get("email", "customer@example.com")},
+            "user_data": {
+                "user_id": state["user_id"],
+                "full_name": applicant_name,
+                "email": applicant_email,
+            },
             "emi_summary": state["emi_schedule"]["summary"]
         })
         

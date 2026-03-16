@@ -63,6 +63,72 @@ def _has_intent(message: str, keywords: tuple[str, ...]) -> bool:
     return False
 
 
+def _extract_scaled_numbers(message: str) -> List[float]:
+    """Extract numeric values and normalize shorthand like 60k, 60,000, 2.5 lakh."""
+    import re
+
+    number_pattern = re.compile(
+        r"(?<!\w)(\d[\d,]*(?:\.\d+)?)\s*(k|l|lac|lakh|cr|crore)?\b",
+        re.IGNORECASE,
+    )
+    multipliers = {
+        "k": 1_000,
+        "l": 100_000,
+        "lac": 100_000,
+        "lakh": 100_000,
+        "cr": 10_000_000,
+        "crore": 10_000_000,
+    }
+
+    values: List[float] = []
+    for raw_value, suffix in number_pattern.findall(message or ""):
+        try:
+            base = float(raw_value.replace(",", ""))
+        except ValueError:
+            continue
+
+        if suffix:
+            base *= multipliers.get(suffix.lower(), 1)
+        values.append(base)
+
+    return values
+
+
+def _extract_first_value_in_range(message: str, minimum: float, maximum: float) -> float | None:
+    for value in _extract_scaled_numbers(message):
+        if minimum <= value <= maximum:
+            return value
+    return None
+
+
+def _normalize_message_for_parsing(message: str) -> str:
+    """Normalize common user typos so field extraction is more tolerant."""
+    import re
+
+    normalized = (message or "").lower()
+    replacements = [
+        (r"\bteir\b", "tier"),
+        (r"\btir\b", "tier"),
+        (r"\bmoth\b", "month"),
+        (r"\bmoths\b", "months"),
+        (r"\bmnth\b", "month"),
+        (r"\bmnths\b", "months"),
+        (r"\bmth\b", "month"),
+        (r"\bmths\b", "months"),
+        (r"\bsalery\b", "salary"),
+        (r"\bsallery\b", "salary"),
+        (r"\bincom\b", "income"),
+        (r"\bincomee\b", "income"),
+        (r"\bemployement\b", "employment"),
+        (r"\bexperiance\b", "experience"),
+    ]
+
+    for pattern, replacement in replacements:
+        normalized = re.sub(pattern, replacement, normalized)
+
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
 def _build_pipeline_progress(state: LoanWorkflowState, status_value: str | None = None) -> Dict[str, Any]:
     kyc_data = state.get("kyc_data") or {}
     credit_data = state.get("credit_data") or {}
@@ -327,7 +393,7 @@ async def chat_with_workflow(
             "timestamp": datetime.now().isoformat()
         })
         
-        message_lower = message.lower()
+        message_lower = _normalize_message_for_parsing(message)
         is_acceptance_message = _has_intent(message, ACCEPTANCE_KEYWORDS)
         is_rejection_message = _has_intent(message, REJECTION_KEYWORDS)
         is_continue_message = _has_intent(message, CONTINUE_KEYWORDS)
@@ -398,15 +464,15 @@ async def chat_with_workflow(
             
             # Extract income (look for numbers with "income" or "salary")
             if any(word in message_lower for word in ["income", "salary", "earn"]):
-                income_match = re.search(r'\b(\d{4,7})\b', message)
-                if income_match:
-                    app_data["monthly_income"] = float(income_match.group())
+                income_value = _extract_first_value_in_range(message, 5000, 10000000)
+                if income_value is not None:
+                    app_data["monthly_income"] = float(income_value)
             
             # Extract amount (look for numbers with "amount" or "need")
             if any(word in message_lower for word in ["amount", "need", "loan", "borrow"]):
-                amount_match = re.search(r'\b(\d{5,8})\b', message)
-                if amount_match:
-                    app_data["requested_amount"] = float(amount_match.group())
+                amount_value = _extract_first_value_in_range(message, 10000, 50000000)
+                if amount_value is not None:
+                    app_data["requested_amount"] = float(amount_value)
 
             # Extract amount in lakh notation (e.g., 1 lakh, 2.5 lakh, 1lakh)
             lakh_match = re.search(r'\b(\d+(?:\.\d+)?)\s*lakh\b', message_lower)
@@ -434,9 +500,16 @@ async def chat_with_workflow(
                     app_data["age"] = int(age_match.group())
 
             # Fallback for standalone numeric messages (common chat pattern)
-            numeric_match = re.fullmatch(r'\s*(\d+(?:\.\d+)?)\s*', message)
-            if numeric_match:
-                numeric_value = float(numeric_match.group(1))
+            standalone_numeric_match = re.fullmatch(
+                r'\s*(?:₹\s*)?\d[\d,]*(?:\.\d+)?\s*(?:k|l|lac|lakh|cr|crore)?\s*',
+                message,
+                re.IGNORECASE,
+            )
+            if standalone_numeric_match:
+                numeric_value = _extract_first_value_in_range(message, 1, 50000000)
+
+                if numeric_value is None:
+                    numeric_value = 0
 
                 if not app_data.get("monthly_income") and 5000 <= numeric_value <= 1000000:
                     app_data["monthly_income"] = numeric_value
@@ -488,15 +561,16 @@ async def chat_with_workflow(
                 ):
                     app_data["employment_years"] = years_value
             
-            # Extract city tier
-            if "tier" in message_lower:
-                tier_match = re.search(r'tier\s*[- ]?\s*([123])\b', message_lower)
+            # Extract city tier (accept common misspellings like "teir 2")
+            tier_hint_present = any(token in message_lower for token in ["tier", "teir", "tir"])
+            if tier_hint_present:
+                tier_match = re.search(r'(?:tier|teir|tir)\s*[- ]?\s*([123])\b', message_lower)
                 if not tier_match:
                     tier_match = re.search(r'\b([123])\b', message)
                 if tier_match:
                     app_data["city_tier"] = int(tier_match.group(1))
             else:
-                short_tier_match = re.search(r'\bt\s*[- ]?\s*([123])\b', message_lower)
+                short_tier_match = re.search(r'\b(?:t|ti|tr)\s*[- ]?\s*([123])\b', message_lower)
                 if short_tier_match:
                     app_data["city_tier"] = int(short_tier_match.group(1))
             if not app_data.get("city_tier") and any(city in message_lower for city in ["mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad"]):
@@ -512,7 +586,7 @@ async def chat_with_workflow(
                 or any(token in message_lower for token in ["tier", "month", "months", "moth", "moths", "tenure"])
             )
             if all_numbers and is_composite_input:
-                if not app_data.get("city_tier") and any("tier" in token for token in message_lower.split()):
+                if not app_data.get("city_tier") and any(token in message_lower for token in ["tier", "teir", "tir"]):
                     tier_candidates = [n for n in all_numbers if n in (1, 2, 3)]
                     if tier_candidates:
                         app_data["city_tier"] = tier_candidates[0]

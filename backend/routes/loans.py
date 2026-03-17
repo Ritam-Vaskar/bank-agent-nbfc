@@ -15,6 +15,7 @@ from models.loan_application import LoanApplication, ApplicationData, Conversati
 from models.loan import Loan
 from engines.kyc_engine import kyc_engine
 from database import mongodb, redis_client
+from services.email_service import email_service
 from workflows.loan_graph import (
     LoanWorkflowState,
     REQUIRED_APPLICATION_FIELDS,
@@ -43,6 +44,75 @@ STEP_CONFIRMATION_STAGES = {
     "generate_sanction",
     "simulate_disbursement",
 }
+
+
+async def _send_loan_report_email(
+    to_email: str,
+    application_id: str,
+    loan_id: str,
+    loan_type: str,
+    loan_offer: Dict[str, Any],
+    sanction_letter_path: str | None = None,
+) -> bool:
+    if not to_email:
+        return False
+
+    subject = f"Loan Approved: {loan_id}"
+    loan_label = loan_type.replace("_", " ").title()
+    body = (
+        "Dear Customer,\n\n"
+        "Your loan has been approved and disbursement is initiated.\n\n"
+        f"Application ID: {application_id}\n"
+        f"Loan ID: {loan_id}\n"
+        f"Loan Type: {loan_label}\n"
+        f"Principal: INR {float(loan_offer.get('principal', 0)):,.2f}\n"
+        f"Interest Rate: {float(loan_offer.get('interest_rate', 0)):.2f}% p.a.\n"
+        f"Tenure: {int(loan_offer.get('tenure_months', 0))} months\n"
+        f"Monthly EMI: INR {float(loan_offer.get('monthly_emi', 0)):,.2f}\n"
+        f"Net Disbursement: INR {float(loan_offer.get('net_disbursement', 0)):,.2f}\n\n"
+        "The sanction letter is attached when available.\n"
+        "Thank you for choosing NBFC Loan Platform.\n"
+    )
+
+    attachments = [sanction_letter_path] if sanction_letter_path else []
+    return await email_service.send_email(
+        to_email=to_email,
+        subject=subject,
+        body_text=body,
+        attachments=attachments,
+    )
+
+
+async def _send_loan_decision_email(
+    to_email: str,
+    application_id: str,
+    loan_type: str,
+    status_value: str,
+    rejection_reason: str | None = None,
+) -> bool:
+    if not to_email:
+        return False
+
+    loan_label = loan_type.replace("_", " ").title()
+    subject = f"Loan Decision Update: {application_id}"
+    body = (
+        "Dear Customer,\n\n"
+        "Your loan request has been processed.\n\n"
+        f"Application ID: {application_id}\n"
+        f"Loan Type: {loan_label}\n"
+        f"Decision Status: {status_value}\n"
+    )
+
+    if rejection_reason:
+        body += f"Reason: {rejection_reason}\n"
+
+    body += "\nYou may start a fresh application any time from your dashboard.\n"
+
+    return await email_service.send_email(
+        to_email=to_email,
+        subject=subject,
+        body_text=body,
+    )
 
 
 def _has_intent(message: str, keywords: tuple[str, ...]) -> bool:
@@ -673,6 +743,8 @@ async def chat_with_workflow(
             "updated_at": result_state["updated_at"]
         }
         
+        old_status = app_doc.get("status")
+
         # Update status
         if result_state["stage"] == "completed":
             if result_state["loan_id"]:
@@ -690,6 +762,32 @@ async def chat_with_workflow(
             {"application_id": application_id},
             {"$set": update_doc}
         )
+
+        if (
+            update_doc["status"] in {"DECLINED", "REJECTED"}
+            and old_status != update_doc["status"]
+        ):
+            try:
+                applicant_email = (
+                    result_state.get("application_data", {}).get("email")
+                    or app_doc.get("owner_email")
+                    or current_user.email
+                )
+                decision_mail_sent = await _send_loan_decision_email(
+                    to_email=applicant_email,
+                    application_id=application_id,
+                    loan_type=result_state.get("loan_type") or app_doc.get("loan_type"),
+                    status_value=update_doc["status"],
+                    rejection_reason=result_state.get("rejection_reason"),
+                )
+                if not decision_mail_sent:
+                    logger.warning(
+                        "Decision email not sent for application %s (%s)",
+                        application_id,
+                        update_doc["status"],
+                    )
+            except Exception as mail_error:
+                logger.error("Decision email dispatch failed: %s", mail_error, exc_info=True)
         
         # If loan was created, save to loans collection
         if result_state.get("loan_id") and not app_doc.get("loan_id"):
@@ -720,6 +818,25 @@ async def chat_with_workflow(
             
             await mongodb.loans.insert_one(loan_doc)
             logger.info(f"Loan {result_state['loan_id']} created and disbursed")
+
+            try:
+                applicant_email = (
+                    result_state.get("application_data", {}).get("email")
+                    or app_doc.get("owner_email")
+                    or current_user.email
+                )
+                mail_sent = await _send_loan_report_email(
+                    to_email=applicant_email,
+                    application_id=application_id,
+                    loan_id=result_state["loan_id"],
+                    loan_type=result_state["loan_type"],
+                    loan_offer=result_state.get("loan_offer") or {},
+                    sanction_letter_path=result_state.get("sanction_letter_path"),
+                )
+                if not mail_sent:
+                    logger.warning("Loan report email not sent for loan %s", result_state["loan_id"])
+            except Exception as mail_error:
+                logger.error("Loan report email dispatch failed: %s", mail_error, exc_info=True)
         
         logger.info(f"Chat processed for application {application_id}, stage: {result_state['stage']}")
         

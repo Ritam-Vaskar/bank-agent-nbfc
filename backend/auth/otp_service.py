@@ -8,10 +8,11 @@ import string
 import logging
 from passlib.hash import bcrypt
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
 from database import redis_client
 from config import settings
+from services.email_service import email_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class OTPService:
             return False
     
     @staticmethod
-    async def create_and_store_otp(email: str) -> str:
+    async def create_and_store_otp(email: str) -> Dict[str, Any]:
         """
         Generate OTP, hash it, store in Redis
         Returns: The plain OTP (to be sent to user)
@@ -60,8 +61,30 @@ class OTPService:
         await redis_client.client.expire(key, expiry_seconds)
         
         logger.info(f"OTP generated for {email} (expires in {settings.OTP_EXPIRY_MINUTES} minutes)")
-        # In development, log to console
-        if settings.is_development:
+
+        email_sent = await email_service.send_otp_email(
+            to_email=email,
+            otp=otp,
+            expiry_minutes=settings.OTP_EXPIRY_MINUTES,
+        )
+
+        fallback_reason = None
+        if not email_sent:
+            provider = email_service.active_provider
+            if provider == "resend":
+                fallback_reason = "Resend API send failed. Check backend logs for detailed error."
+            elif provider == "smtp":
+                fallback_reason = "SMTP send failed. Check backend logs for detailed SMTP error."
+            elif not email_service.is_configured:
+                fallback_reason = (
+                    "Email provider not configured. Missing: "
+                    + ", ".join(email_service.missing_config_fields())
+                )
+            else:
+                fallback_reason = "Email send failed. Check backend logs for details."
+
+        # Fallback: keep console simulation when SMTP is not configured/failed
+        if not email_sent:
             logger.info("=" * 60)
             logger.info("📧 OTP EMAIL SIMULATION")
             logger.info("=" * 60)
@@ -72,12 +95,12 @@ class OTPService:
             logger.info(f"Valid for: {settings.OTP_EXPIRY_MINUTES} minutes")
             logger.info(f"Do not share this OTP with anyone.")
             logger.info("=" * 60)
-        else:
-            # In production, use real email service
-            # await email_service.send(email, "OTP", otp)
-            pass
         
-        return otp
+        return {
+            "otp": otp,
+            "email_sent": email_sent,
+            "fallback_reason": fallback_reason,
+        }
     
     @staticmethod
     async def verify_otp(email: str, otp: str) -> Tuple[bool, Optional[str]]:

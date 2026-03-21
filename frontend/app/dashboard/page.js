@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { loansAPI } from '@/lib/api';
+import { loansAPI, telegramAPI } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
 import Button from '@/components/ui/Button';
@@ -57,7 +57,10 @@ export default function Dashboard() {
   const { user, clearAuth, isAuthenticated, isAuthInitialized, initAuth } = useAuthStore();
   const [activeLoans, setActiveLoans] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [telegramLinkStatus, setTelegramLinkStatus] = useState({ linked: false });
+  const [telegramLinkCode, setTelegramLinkCode] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isTelegramLoading, setIsTelegramLoading] = useState(false);
 
   useEffect(() => {
     initAuth();
@@ -79,16 +82,54 @@ export default function Dashboard() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [loansRes, appsRes] = await Promise.all([
+      const [loansRes, appsRes, telegramRes] = await Promise.all([
         loansAPI.getActiveLoans(),
         loansAPI.getApplications(),
+        telegramAPI.getLinkStatus(),
       ]);
       setActiveLoans(loansRes.data.loans || []);
       setApplications(appsRes.data.applications || []);
+      setTelegramLinkStatus(telegramRes.data || { linked: false });
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const refreshTelegramStatus = async () => {
+    try {
+      const response = await telegramAPI.getLinkStatus();
+      setTelegramLinkStatus(response.data || { linked: false });
+    } catch (error) {
+      console.error('Failed to fetch Telegram status:', error);
+    }
+  };
+
+  const handleGenerateTelegramCode = async () => {
+    setIsTelegramLoading(true);
+    try {
+      const response = await telegramAPI.generateLinkToken();
+      setTelegramLinkCode(response.data);
+      toast.success('Telegram link code generated');
+    } catch (error) {
+      console.error('Failed to generate Telegram link code:', error);
+    } finally {
+      setIsTelegramLoading(false);
+    }
+  };
+
+  const handleUnlinkTelegram = async () => {
+    setIsTelegramLoading(true);
+    try {
+      await telegramAPI.unlink();
+      setTelegramLinkStatus({ linked: false });
+      setTelegramLinkCode(null);
+      toast.success('Telegram account unlinked');
+    } catch (error) {
+      console.error('Failed to unlink Telegram:', error);
+    } finally {
+      setIsTelegramLoading(false);
     }
   };
 
@@ -281,6 +322,56 @@ export default function Dashboard() {
           </div>
         </section>
 
+        {/* Telegram Integration */}
+        <section className="mb-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Telegram Integration</h2>
+          <Card>
+            <CardContent className="pt-6 space-y-3">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm text-gray-600">Link your Telegram chat to this account</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    Status: {telegramLinkStatus?.linked ? 'Linked' : 'Not Linked'}
+                  </p>
+                  {telegramLinkStatus?.linked && telegramLinkStatus?.telegram_username && (
+                    <p className="text-xs text-gray-600">Telegram: @{telegramLinkStatus.telegram_username}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={refreshTelegramStatus} disabled={isTelegramLoading}>
+                    Refresh
+                  </Button>
+                  <Button size="sm" onClick={handleGenerateTelegramCode} isLoading={isTelegramLoading}>
+                    Generate Link Code
+                  </Button>
+                  {telegramLinkStatus?.linked && (
+                    <Button variant="ghost" size="sm" onClick={handleUnlinkTelegram} disabled={isTelegramLoading}>
+                      Unlink
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {telegramLinkCode?.code && (
+                <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
+                  <p className="text-xs text-gray-600">Send this in Telegram</p>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">{telegramLinkCode.command}</p>
+                  {telegramLinkCode?.deep_link && (
+                    <a
+                      href={telegramLinkCode.deep_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-primary-700 hover:underline mt-1 inline-block"
+                    >
+                      Open bot with code
+                    </a>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
         {/* Loan Requests */}
         {loanRequests.length > 0 && (
           <section className="mb-8">
@@ -411,6 +502,7 @@ export default function Dashboard() {
                         </h3>
                         <p className="text-sm text-gray-600">Application ID: {app.application_id.slice(0, 8)}...</p>
                         <p className="text-sm text-gray-600">Last updated: {formatDate(app.updated_at || app.created_at)}</p>
+                        <p className="text-xs text-gray-600">Source: {(app.source_channel || 'web').toUpperCase()}</p>
                         <p className="text-xs text-primary-700 mt-1">Open to continue from where you left off</p>
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t border-gray-100">
                           <div>

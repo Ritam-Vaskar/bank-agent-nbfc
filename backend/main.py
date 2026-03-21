@@ -166,15 +166,18 @@ logger.info("📦 Loading API routers...")
 from routes.auth import router as auth_router
 from routes.loans import router as loans_router
 from routes.admin import router as admin_router
+from routes.telegram import router as telegram_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(loans_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(telegram_router, prefix="/api")
 
 logger.info("✅ All routers loaded successfully")
 logger.info("   - /api/auth (Authentication)")
 logger.info("   - /api/loans (Loan Applications & Workflow)")
 logger.info("   - /api/admin (Admin & Analytics)")
+logger.info("   - /api/telegram (Telegram Bot & Account Linking)")
 # app.include_router(loans.router, prefix="/loans", tags=["Loans"])
 # app.include_router(kyc.router, prefix="/kyc", tags=["KYC"])
 # app.include_router(admin.router, prefix="/admin", tags=["Admin"])

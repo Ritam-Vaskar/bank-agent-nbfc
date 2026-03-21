@@ -153,6 +153,21 @@ class MongoDB:
         """Consent records collection"""
         return self.db.consent_records if self.db is not None else None
 
+    @property
+    def telegram_links(self):
+        """Telegram account linkage collection"""
+        return self.db.telegram_links if self.db is not None else None
+
+    @property
+    def telegram_link_codes(self):
+        """Telegram one-time link code collection"""
+        return self.db.telegram_link_codes if self.db is not None else None
+
+    @property
+    def telegram_sessions(self):
+        """Telegram chat session state collection"""
+        return self.db.telegram_sessions if self.db is not None else None
+
 
 class RedisClient:
     """Redis connection manager"""

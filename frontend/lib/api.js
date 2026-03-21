@@ -73,6 +73,13 @@ export const loansAPI = {
     api.get(`/loans/${loanId}/sanction-letter`, { responseType: 'blob' }),
 };
 
+// Telegram API
+export const telegramAPI = {
+  getLinkStatus: () => api.get('/telegram/link-status'),
+  generateLinkToken: () => api.post('/telegram/link-token'),
+  unlink: () => api.post('/telegram/unlink'),
+};
+
 // Health check
 export const healthCheck = () => axios.get(`${API_URL}/health`);
 

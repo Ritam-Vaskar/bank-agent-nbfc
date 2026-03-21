@@ -168,6 +168,27 @@ Once the backend is running, visit:
 - `GET /admin/analytics/risk-distribution` - Risk analytics
 - `GET /admin/audit-logs` - Audit trail
 
+**Telegram:**
+- `POST /telegram/webhook` - Telegram webhook receiver
+- `POST /telegram/link-token` - Generate one-time account link code (auth required)
+- `GET /telegram/link-status` - Get Telegram link status for current account
+- `POST /telegram/unlink` - Unlink Telegram from current account
+
+## 🤖 Telegram Bot Integration
+
+Configure these backend environment variables:
+- `TELEGRAM_BOT_TOKEN` - Telegram bot token from BotFather
+- `TELEGRAM_WEBHOOK_SECRET` - Secret token used by Telegram webhook header (recommended)
+- `TELEGRAM_BOT_USERNAME` - Bot username (used to build deep-link)
+- `TELEGRAM_LINK_CODE_TTL_SECONDS` - One-time link code expiry (default 900)
+- `TELEGRAM_DASHBOARD_URL` - Dashboard URL sent in Telegram confirmations
+
+Link flow:
+1. Login in dashboard and generate Telegram link code.
+2. In Telegram bot chat, send `/link <code>` (or use deep-link).
+3. Start a loan flow via `/new personal`, `/new home`, or `/new business`.
+4. Telegram chat updates are saved under the same user account and visible in dashboard chats.
+
 ## 🏦 Loan Types & Policies
 
 ### Phase 1 (Current): Personal Loan

@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
     RESEND_API_BASE_URL: str = "https://api.resend.com"
+
+    # Telegram Bot Configuration
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+    TELEGRAM_BOT_USERNAME: str = ""
+    TELEGRAM_LINK_CODE_TTL_SECONDS: int = 900
+    TELEGRAM_DASHBOARD_URL: str = "http://localhost:3000/dashboard"
     
     @property
     def cors_origins_list(self) -> List[str]:

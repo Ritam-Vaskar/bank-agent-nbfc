@@ -365,6 +365,7 @@ async def start_loan_application(
             "loan_type": loan_type,
             "status": "IN_PROGRESS",
             "owner_email": current_user.email,
+            "source_channel": "web",
             "workflow_stage": result_state["stage"],
             "application_data": result_state["application_data"],
             "conversation_messages": result_state["messages"],
@@ -416,6 +417,7 @@ async def chat_with_workflow(
     """
     try:
         message = chat_message.message
+        incoming_channel = (chat_message.metadata or {}).get("channel")
         
         # Fetch current application state
         app_doc = await mongodb.loan_applications.find_one({
@@ -460,7 +462,8 @@ async def chat_with_workflow(
         state["messages"].append({
             "role": "user",
             "content": message,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "metadata": chat_message.metadata or {}
         })
         
         message_lower = _normalize_message_for_parsing(message)
@@ -742,6 +745,10 @@ async def chat_with_workflow(
             "rejection_reason": result_state.get("rejection_reason"),
             "updated_at": result_state["updated_at"]
         }
+
+        if incoming_channel:
+            update_doc["source_channel"] = str(incoming_channel).lower()
+            update_doc["channel_metadata"] = chat_message.metadata or {}
         
         old_status = app_doc.get("status")
 

@@ -69,7 +69,7 @@ A production-grade digital lending platform with multi-stage policy-driven under
 - Next.js 14+ (App Router)
 - TailwindCSS + Shadcn/UI
 - React Query
-- TypeScript
+- JavaScript
 
 **DevOps:**
 - Docker Compose
@@ -78,7 +78,7 @@ A production-grade digital lending platform with multi-stage policy-driven under
 ## 📋 Prerequisites
 
 - Docker Desktop installed and running
-- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
+- OpenAI API key ([Get one here](https://platform.openai.com/api-keys)) or Gemini/Grok
 - Git
 - 4GB+ RAM available for containers
 - Ports 3000, 8000, 27017, 6379 available

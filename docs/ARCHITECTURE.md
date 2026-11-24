@@ -590,6 +590,19 @@ CONVERSATION GUIDELINES:
 - **Logging**: ELK stack (Elasticsearch, Logstash, Kibana)
 - **CI/CD**: GitHub Actions for automated testing & deployment
 
+## TrustLend upgrade specifications
+
+The target-state requirements for the TrustLend upgrade are maintained in the
+[specification index](./specs/README.md). The specifications resolve the current
+architecture's open security and trust gaps, including cookie-based auth,
+PII-safe LLM boundaries, hash-chained audit records, verifiable KYC credentials,
+double-entry payments, sovereign mode, trust observability, and signed sanction
+letters.
+
+The existing deterministic engines remain authoritative. The LLM is limited to
+collection, constrained intent classification, and explanation; it cannot make or
+alter underwriting or payment decisions.
+
 ## Compliance & Auditing
 
 ### RBI Digital Lending Guidelines
